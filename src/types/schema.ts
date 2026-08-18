@@ -128,6 +128,9 @@ export interface Store {
   city: string | null;
   description: string | null;
   is_archived: boolean;
+  is_verified?: boolean;
+  pending_name?: string | null;
+  pending_name_reason?: string | null;
   created_at: string;
   updated_at: string;
   momo_enabled: boolean;

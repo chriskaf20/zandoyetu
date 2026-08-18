@@ -51,7 +51,16 @@ export function MegaMenu() {
   };
 
   useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 50) {
+        setActiveMenu(null);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
     return () => {
+      window.removeEventListener('scroll', handleScroll);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
@@ -65,7 +74,7 @@ export function MegaMenu() {
       onMouseLeave={handleMouseLeave}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <nav className="flex items-center justify-between overflow-x-auto no-scrollbar py-2 text-xs font-semibold">
+        <nav className="flex items-center justify-between overflow-x-auto no-scrollbar py-2 text-xs font-semibold gap-2">
           {/* Main Rayon Trigger */}
           <button
             type="button"
@@ -80,15 +89,15 @@ export function MegaMenu() {
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${activeMenu ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* Quick Department Nav Links */}
-          <div className="flex items-center gap-1 sm:gap-2">
-            {departments.slice(0, 5).map((dept) => (
+          {/* Clean Top Department Nav Links (7 departments) */}
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            {departments.map((dept) => (
               <button
                 key={dept.slug}
                 type="button"
                 onMouseEnter={() => handleMouseEnter(dept.slug)}
                 onClick={() => handleMouseEnter(dept.slug)}
-                className={`px-3 py-1.5 rounded transition uppercase tracking-wider whitespace-nowrap ${
+                className={`px-2.5 py-1.5 rounded transition uppercase tracking-wider whitespace-nowrap text-[11px] sm:text-xs ${
                   activeMenu === dept.slug
                     ? 'text-brand-black font-bold border-b-2 border-brand-black'
                     : 'text-neutral-600 hover:text-brand-black'
@@ -98,25 +107,10 @@ export function MegaMenu() {
               </button>
             ))}
 
-            {/* Direct High Intent Quick Links */}
-            <Link
-              href="/?category=robes"
-              className="hidden lg:inline-block px-3 py-1.5 text-neutral-600 hover:text-brand-black uppercase tracking-wider whitespace-nowrap"
-            >
-              Robes & Ensembles
-            </Link>
-
-            <Link
-              href="/?category=chaussures"
-              className="hidden lg:inline-block px-3 py-1.5 text-neutral-600 hover:text-brand-black uppercase tracking-wider whitespace-nowrap"
-            >
-              Chaussures
-            </Link>
-
             {/* Flash Deals Highlight Link */}
             <Link
               href="/?trending=true"
-              className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded font-bold uppercase tracking-wider whitespace-nowrap hover:bg-amber-100 transition"
+              className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded font-bold uppercase tracking-wider whitespace-nowrap hover:bg-amber-100 transition text-[11px] sm:text-xs ml-1"
             >
               <Flame className="w-3.5 h-3.5 text-red-500 fill-red-500 animate-pulse" />
               <span>{t('flashSales')}</span>

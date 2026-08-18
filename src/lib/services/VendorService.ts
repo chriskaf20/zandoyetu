@@ -43,9 +43,55 @@ export class VendorService {
       city: data.city,
       momo_enabled: data.momo_enabled,
       is_archived: data.is_archived,
+      is_verified: !!data.is_verified,
+      pending_name: data.pending_name || null,
+      pending_name_reason: data.pending_name_reason || null,
       created_at: data.created_at,
       updated_at: data.updated_at,
     };
+  }
+
+  /**
+   * Submit store name change request for admin approval
+   */
+  static async requestStoreNameChange(
+    storeId: string,
+    proposedName: string,
+    reason?: string
+  ): Promise<boolean> {
+    const { error } = await (supabase
+      .from('stores')
+      .update({
+        pending_name: proposedName.trim(),
+        pending_name_reason: reason?.trim() || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', storeId) as any);
+
+    if (error) {
+      console.error('[VendorService] Error requesting store name change:', error);
+      throw error;
+    }
+    return true;
+  }
+
+  /**
+   * Archive / soft delete product
+   */
+  static async archiveProduct(productId: string): Promise<boolean> {
+    const { error } = await (supabase
+      .from('products')
+      .update({
+        status: 'archived',
+        local_updated_at: new Date().toISOString(),
+      })
+      .eq('id', productId) as any);
+
+    if (error) {
+      console.error('[VendorService] Error archiving product:', error);
+      throw error;
+    }
+    return true;
   }
 
   /**

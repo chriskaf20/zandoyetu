@@ -116,6 +116,51 @@ export default function VendorDashboardPage() {
     loadData();
   }, [user?.id]);
 
+  // Store Name Change Request State
+  const [isNameChangeModalOpen, setIsNameChangeModalOpen] = useState(false);
+  const [proposedName, setProposedName] = useState('');
+  const [nameChangeReason, setNameChangeReason] = useState('');
+
+  // Handle Store Name Change Request
+  const handleRequestStoreNameChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!store?.id || !proposedName.trim()) return;
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      await VendorService.requestStoreNameChange(store.id, proposedName, nameChangeReason);
+      setMessage({
+        type: 'success',
+        text: `Demande de renommage soumise pour "${proposedName}". En attente de validation administrative.`,
+      });
+      setIsNameChangeModalOpen(false);
+      setProposedName('');
+      setNameChangeReason('');
+      loadData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Erreur lors de la soumission de la demande.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle Toggle Archive Product
+  const handleToggleArchiveProduct = async (productId: string, currentlyArchived: boolean) => {
+    try {
+      if (currentlyArchived) {
+        await VendorService.updateProduct(productId, user!.id, { status: 'active' } as any);
+        setMessage({ type: 'success', text: 'Article réactivé avec succès.' });
+      } else {
+        await VendorService.archiveProduct(productId);
+        setMessage({ type: 'success', text: 'Article archivé/désactivé du catalogue.' });
+      }
+      loadData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: 'Erreur lors du changement de statut.' });
+    }
+  };
+
   // Handle Save Store Profile
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -241,24 +286,57 @@ export default function VendorDashboardPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-brand-border">
         <div>
-          <h1 className="font-serif text-2xl font-bold text-brand-black">
-            {store?.store_name || 'Tableau de Bord Boutique'}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-serif text-2xl font-bold text-brand-black">
+              {store?.store_name || 'Tableau de Bord Boutique'}
+            </h1>
+            {store?.is_verified && (
+              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full flex items-center gap-1">
+                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                Vérifié
+              </span>
+            )}
+          </div>
           <p className="text-xs text-brand-gray mt-0.5">
-            Gérez votre catalogue, suivez vos commandes et configurez vos coordonnées WhatsApp à Lubumbashi.
+            Gérez votre catalogue, suivez vos commandes et configurez vos coordonnées à Lubumbashi.
           </p>
         </div>
 
-        {/* Global Action */}
-        <button
-          type="button"
-          onClick={handleOpenCreateModal}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-black text-white text-xs font-semibold uppercase tracking-wider rounded-lg hover:bg-brand-charcoal transition shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Ajouter un article</span>
-        </button>
+        {/* Global Actions */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsNameChangeModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-brand-border text-brand-black text-xs font-semibold rounded-lg hover:bg-neutral-50 transition shadow-sm"
+          >
+            <Edit className="w-3.5 h-3.5" />
+            <span>Modifier le nom commercial</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-black text-white text-xs font-semibold uppercase tracking-wider rounded-lg hover:bg-brand-charcoal transition shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Ajouter un article</span>
+          </button>
+        </div>
       </div>
+
+      {/* Pending Store Name Change Alert */}
+      {store?.pending_name && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs flex items-center justify-between text-amber-900">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <p>
+              Demande de modification de nom commercial en cours : <strong className="font-bold">"{store.pending_name}"</strong>.
+              {store.pending_name_reason && <span className="text-neutral-600"> (Motif: {store.pending_name_reason})</span>}
+              {' '}— <span className="text-amber-800 italic">En attente d'approbation par l'administration Zando Yetu.</span>
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Feedback Message */}
       {message && (
@@ -321,7 +399,7 @@ export default function VendorDashboardPage() {
           }`}
         >
           <StoreIcon className="w-4 h-4" />
-          <span>Profil Boutique & WhatsApp</span>
+          <span>Profil Boutique & Coordonnées</span>
         </button>
       </div>
 
@@ -380,6 +458,7 @@ export default function VendorDashboardPage() {
                       <tbody className="divide-y divide-brand-border">
                         {filteredProducts.map((p) => {
                           const img = p.images_urls?.[0] || 'https://placehold.co/100x120/png?text=Item';
+                          const isArchived = p.status === 'archived';
 
                           return (
                             <tr key={p.id} className="hover:bg-brand-offWhite transition">
@@ -389,7 +468,9 @@ export default function VendorDashboardPage() {
                                     <Image src={img} alt={p.title} fill className="object-cover" sizes="48px" />
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="font-semibold text-brand-black truncate max-w-[200px]">{p.title}</p>
+                                    <p className={`font-semibold truncate max-w-[200px] ${isArchived ? 'line-through text-neutral-400' : 'text-brand-black'}`}>
+                                      {p.title}
+                                    </p>
                                     <span className="text-[10px] text-brand-gray uppercase">{p.target_gender}</span>
                                   </div>
                                 </div>
@@ -418,7 +499,13 @@ export default function VendorDashboardPage() {
                               </td>
 
                               <td className="py-3 px-4">
-                                <span className="px-2 py-0.5 bg-neutral-100 text-neutral-800 rounded text-[10px] uppercase font-semibold">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${
+                                    isArchived
+                                      ? 'bg-neutral-200 text-neutral-600'
+                                      : 'bg-emerald-100 text-emerald-800'
+                                  }`}
+                                >
                                   {p.status}
                                 </span>
                               </td>
@@ -435,9 +522,25 @@ export default function VendorDashboardPage() {
                                   </button>
                                   <button
                                     type="button"
+                                    onClick={() => handleToggleArchiveProduct(p.id, isArchived)}
+                                    className={`p-1.5 rounded transition ${
+                                      isArchived
+                                        ? 'text-emerald-600 hover:bg-emerald-50'
+                                        : 'text-amber-600 hover:bg-amber-50'
+                                    }`}
+                                    title={isArchived ? 'Réactiver l\'article' : 'Désactiver / Archiver l\'article'}
+                                  >
+                                    {isArchived ? (
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <AlertCircle className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => handleDeleteProduct(p.id)}
                                     className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
-                                    title="Supprimer l'article"
+                                    title="Supprimer définitivement"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -473,29 +576,31 @@ export default function VendorDashboardPage() {
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-brand-border">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-brand-black">#{o.id.slice(0, 8)}</span>
+                            <span className="font-mono text-xs font-bold text-brand-black">
+                              CMD #{o.id.slice(0, 8).toUpperCase()}
+                            </span>
                             <span className="text-[10px] text-brand-gray">
-                              {new Date(o.timestamp).toLocaleString('fr-FR')}
+                              • {new Date(o.timestamp || o.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
-                          <p className="text-xs text-brand-black font-medium mt-0.5">
-                            Client : <strong>{o.users?.full_name || 'Client Zando'}</strong> ({o.users?.phone || 'Pas de numéro'})
+                          <p className="text-xs text-brand-black mt-1">
+                            Client : <strong className="font-semibold">{o.users?.full_name || 'Client Lubumbashi'}</strong>
+                            {o.users?.phone && <span className="text-neutral-500"> ({o.users.phone})</span>}
                           </p>
                         </div>
 
-                        {/* Status update dropdown */}
+                        {/* Status update selector */}
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-brand-gray">Statut :</span>
+                          <label className="text-[10px] uppercase font-bold text-brand-gray">Statut :</label>
                           <select
                             value={o.order_status}
                             onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                            className="text-xs font-semibold bg-brand-lightGray border border-brand-border rounded-lg py-1 px-2.5 focus:outline-none cursor-pointer"
+                            className="text-xs font-semibold px-2.5 py-1 border border-brand-border rounded-md bg-white focus:outline-none focus:border-brand-black"
                           >
                             <option value="pending">En attente (Pending)</option>
-                            <option value="approved">Approuvée</option>
                             <option value="processing">En préparation (Processing)</option>
-                            <option value="shipped">Expédiée (Shipped)</option>
-                            <option value="completed">Livrée & Clôturée</option>
+                            <option value="shipped">Expédiée / En cours de livraison</option>
+                            <option value="completed">Livrée & Terminée</option>
                             <option value="cancelled">Annulée</option>
                           </select>
                         </div>
@@ -513,7 +618,7 @@ export default function VendorDashboardPage() {
                         <div className="sm:text-right">
                           <p className="text-[10px] uppercase font-bold text-brand-gray">Montant Total</p>
                           <p className="text-sm font-bold text-brand-black mt-0.5">
-                            {formatPrice(o.total_usd)} <span className="text-[10px] text-brand-gray">({o.total_cdf.toLocaleString()} CDF)</span>
+                            {formatPrice(o.total_usd)} <span className="text-[10px] text-brand-gray">({o.total_cdf?.toLocaleString()} CDF)</span>
                           </p>
                         </div>
                       </div>
@@ -527,22 +632,42 @@ export default function VendorDashboardPage() {
           {/* TAB 3: STORE PROFILE & WHATSAPP */}
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveStore} className="bg-white rounded-lg border border-brand-border p-6 shadow-sm max-w-2xl space-y-4">
-              <h3 className="font-serif text-base font-bold text-brand-black border-b border-brand-border pb-3">
-                Coordonnées & Visibilité de la Boutique
-              </h3>
+              <div className="flex items-center justify-between border-b border-brand-border pb-3">
+                <h3 className="font-serif text-base font-bold text-brand-black">
+                  Coordonnées & Visibilité de la Boutique
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsNameChangeModalOpen(true)}
+                  className="text-xs font-semibold text-brand-black hover:underline inline-flex items-center gap-1"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Demander un changement de nom</span>
+                </button>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-brand-black mb-1">
-                  Nom de la Boutique *
+                  Nom Commercial Actuel de la Boutique
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={storeForm.store_name}
-                  onChange={(e) => setStoreForm({ ...storeForm, store_name: e.target.value })}
-                  placeholder="Ex: Maison Katanga Couture"
-                  className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    disabled
+                    value={storeForm.store_name}
+                    className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg bg-neutral-100 text-neutral-600 cursor-not-allowed"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsNameChangeModalOpen(true)}
+                    className="px-3 py-2 bg-brand-black text-white text-xs font-semibold rounded-lg hover:bg-brand-charcoal whitespace-nowrap"
+                  >
+                    Changer le nom
+                  </button>
+                </div>
+                <p className="text-[10px] text-brand-gray mt-1">
+                  Le nom commercial de votre boutique nécessite une approbation administrative.
+                </p>
               </div>
 
               <div>
@@ -606,12 +731,88 @@ export default function VendorDashboardPage() {
                   className="px-5 py-2.5 bg-brand-black text-white text-xs font-semibold uppercase tracking-wider rounded-lg hover:bg-brand-charcoal transition shadow flex items-center gap-2"
                 >
                   {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Enregistrer le profil</span>
+                  <span>Enregistrer les coordonnées</span>
                 </button>
               </div>
             </form>
           )}
         </>
+      )}
+
+      {/* STORE NAME CHANGE MODAL */}
+      {isNameChangeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-brand-border p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-brand-border">
+              <h3 className="font-serif text-base font-bold text-brand-black">
+                Demande de Changement de Nom
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsNameChangeModalOpen(false)}
+                className="p-1 text-brand-gray hover:text-brand-black"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestStoreNameChange} className="space-y-4">
+              <div className="p-3 bg-neutral-50 rounded-lg text-xs text-neutral-600 border border-neutral-200">
+                <p>
+                  Nom actuel : <strong className="text-brand-black font-semibold">{store?.store_name}</strong>
+                </p>
+                <p className="mt-1 text-[11px] text-neutral-500">
+                  Toute modification de nom doit être validée par les administrateurs pour préserver la confiance des acheteurs.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-brand-black mb-1">
+                  Nouveau Nom Proposé *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={proposedName}
+                  onChange={(e) => setProposedName(e.target.value)}
+                  placeholder="Ex: Katanga Luxury & Fashion"
+                  className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-brand-black mb-1">
+                  Motif du changement (optionnel)
+                </label>
+                <textarea
+                  rows={2}
+                  value={nameChangeReason}
+                  onChange={(e) => setNameChangeReason(e.target.value)}
+                  placeholder="Ex: Rebranding de notre boutique physique à Lubumbashi"
+                  className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-brand-border">
+                <button
+                  type="button"
+                  onClick={() => setIsNameChangeModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-neutral-600 hover:text-black"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || !proposedName.trim()}
+                  className="px-4 py-2 bg-brand-black text-white text-xs font-semibold rounded-lg hover:bg-brand-charcoal transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Soumettre la demande</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* CREATE / EDIT PRODUCT MODAL */}

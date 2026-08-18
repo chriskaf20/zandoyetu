@@ -104,7 +104,7 @@ export class AdminService {
   }
 
   /**
-   * Toggle store archive / verification status
+   * Toggle store archive status
    */
   static async toggleStoreStatus(storeId: string, isArchived: boolean): Promise<boolean> {
     const { error } = await (supabase
@@ -117,6 +117,123 @@ export class AdminService {
 
     if (error) {
       console.error('[AdminService] Error updating store status:', error);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Toggle official store verification badge
+   */
+  static async toggleStoreVerification(storeId: string, isVerified: boolean): Promise<boolean> {
+    const { error } = await (supabase
+      .from('stores')
+      .update({
+        is_verified: isVerified,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', storeId) as any);
+
+    if (error) {
+      console.error('[AdminService] Error updating store verification:', error);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Get pending store name change requests
+   */
+  static async getStoreNameRequests(): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*, users:vendor_id(id, full_name, email, phone)')
+      .not('pending_name', 'is', null)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('[AdminService] Error fetching name requests:', error);
+      return [];
+    }
+    return data || [];
+  }
+
+  /**
+   * Approve store name change request
+   */
+  static async approveStoreNameChange(storeId: string, approvedName: string): Promise<boolean> {
+    const { error } = await (supabase
+      .from('stores')
+      .update({
+        store_name: approvedName.trim(),
+        pending_name: null,
+        pending_name_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', storeId) as any);
+
+    if (error) {
+      console.error('[AdminService] Error approving store name:', error);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Reject store name change request
+   */
+  static async rejectStoreNameChange(storeId: string): Promise<boolean> {
+    const { error } = await (supabase
+      .from('stores')
+      .update({
+        pending_name: null,
+        pending_name_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', storeId) as any);
+
+    if (error) {
+      console.error('[AdminService] Error rejecting store name:', error);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Get products by store vendor_id (or all products if not filtered)
+   */
+  static async getProductsByStore(vendorId?: string): Promise<any[]> {
+    let query = supabase
+      .from('products')
+      .select('*, stores:vendor_id(id, store_name, city)')
+      .order('local_updated_at', { ascending: false });
+
+    if (vendorId && vendorId !== 'all') {
+      query = query.eq('vendor_id', vendorId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[AdminService] Error fetching products by store:', error);
+      return [];
+    }
+    return data || [];
+  }
+
+  /**
+   * Archive / soft delete a product
+   */
+  static async toggleProductArchive(productId: string, isArchived: boolean): Promise<boolean> {
+    const { error } = await (supabase
+      .from('products')
+      .update({
+        status: isArchived ? 'archived' : 'active',
+        local_updated_at: new Date().toISOString(),
+      })
+      .eq('id', productId) as any);
+
+    if (error) {
+      console.error('[AdminService] Error toggling product status:', error);
       return false;
     }
     return true;

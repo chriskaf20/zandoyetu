@@ -19,6 +19,8 @@ import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useCartStore } from '@/lib/stores/useCartStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 
+import { useStores } from '@/hooks/useStores';
+
 interface PromoDealsGridProps {
   products: Product[];
 }
@@ -27,6 +29,7 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
   const { formatPrice } = useCurrencyStore();
   const { t } = useLanguageStore();
   const addItem = useCartStore((s) => s.addItem);
+  const { data: stores = [] } = useStores();
 
   // Dynamic countdown timer for Flash deals
   const [timeLeft, setTimeLeft] = useState({ hours: 4, minutes: 42, seconds: 18 });
@@ -45,6 +48,9 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
 
   const dealProducts = products.slice(0, 2);
   const trendProducts = products.slice(2, 4);
+
+  // Top verified sellers (either marked is_verified or top listed)
+  const topStores = stores.filter((s) => s.is_verified || !s.is_archived).slice(0, 2);
 
   return (
     <section className="my-10">
@@ -202,7 +208,7 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
           </Link>
         </div>
 
-        {/* Block 3: Boutiques Officielles & Créateurs Certifiés */}
+        {/* Block 3: Top Vendeurs Lubumbashi (Consolidated & Verified) */}
         <div className="bg-gradient-to-br from-neutral-900 to-brand-black text-white p-5 rounded-lg border border-neutral-800 shadow-md flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
@@ -212,58 +218,64 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
                 </div>
                 <div>
                   <h3 className="font-serif text-sm font-bold text-white">
-                    Boutiques Officielles
+                    Top Vendeurs Lubumbashi
                   </h3>
-                  <p className="text-[10px] text-neutral-400">Vendeurs certifiés Lubumbashi</p>
+                  <p className="text-[10px] text-neutral-400">Boutiques certifiées & créateurs locaux</p>
                 </div>
               </div>
               <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase rounded">
-                Vérifié
+                Certifiés
               </span>
             </div>
 
             <div className="mt-4 space-y-3">
-              <div className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
-                    MK
+              {topStores.length > 0 ? (
+                topStores.map((st) => (
+                  <div key={st.id} className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                        {st.store_name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white flex items-center gap-1">
+                          {st.store_name}
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        </h4>
+                        <p className="text-[10px] text-neutral-400">
+                          {st.city || 'Lubumbashi Centre'} • 4.9 ★
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      href={`/stores/${st.id}`}
+                      className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white text-black rounded hover:bg-neutral-200 transition"
+                    >
+                      Visiter
+                    </Link>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-white flex items-center gap-1">
-                      Maison Katanga Couture
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    </h4>
-                    <p className="text-[10px] text-neutral-400">Golf Les Bâtisseurs • 4.9 ★</p>
+                ))
+              ) : (
+                <div className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                      ZY
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-1">
+                        Boutique Officielle Zando
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      </h4>
+                      <p className="text-[10px] text-neutral-400">Lubumbashi • 5.0 ★</p>
+                    </div>
                   </div>
+                  <Link
+                    href="/?stores=all"
+                    className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white text-black rounded hover:bg-neutral-200 transition"
+                  >
+                    Visiter
+                  </Link>
                 </div>
-                <Link
-                  href="/?stores=all"
-                  className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white text-black rounded hover:bg-neutral-200 transition"
-                >
-                  Visiter
-                </Link>
-              </div>
-
-              <div className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-xs">
-                    ZB
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-white flex items-center gap-1">
-                      Zando Boutique Urbaine
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    </h4>
-                    <p className="text-[10px] text-neutral-400">Centre-Ville Lubumbashi • 4.8 ★</p>
-                  </div>
-                </div>
-                <Link
-                  href="/?stores=all"
-                  className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white text-black rounded hover:bg-neutral-200 transition"
-                >
-                  Visiter
-                </Link>
-              </div>
+              )}
             </div>
           </div>
 

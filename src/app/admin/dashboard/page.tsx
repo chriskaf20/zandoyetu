@@ -20,12 +20,17 @@ import {
   Loader2, 
   X,
   Phone,
-  RefreshCw
+  RefreshCw,
+  BadgeCheck,
+  Check,
+  Ban,
+  Filter,
+  Package
 } from 'lucide-react';
 import { AdminService, PlatformMetrics, PlatformSettings } from '@/lib/services/AdminService';
 import { HeroBanner } from '@/types/schema';
 
-type AdminTab = 'analytics' | 'stores' | 'settings' | 'banners_flash';
+type AdminTab = 'analytics' | 'stores' | 'products' | 'requests' | 'settings' | 'banners_flash';
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('analytics');
@@ -36,6 +41,9 @@ export default function AdminDashboardPage() {
   // Admin Data State
   const [metrics, setMetrics] = useState<PlatformMetrics | null>(null);
   const [stores, setStores] = useState<any[]>([]);
+  const [nameRequests, setNameRequests] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [selectedVendorId, setSelectedVendorId] = useState<string>('all');
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [banners, setBanners] = useState<HeroBanner[]>([]);
   const [flashSales, setFlashSales] = useState<any[]>([]);
@@ -53,9 +61,11 @@ export default function AdminDashboardPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [m, s, sett, b, f] = await Promise.all([
+      const [m, s, reqs, prods, sett, b, f] = await Promise.all([
         AdminService.getPlatformMetrics(),
         AdminService.getAllStores(),
+        AdminService.getStoreNameRequests(),
+        AdminService.getProductsByStore(selectedVendorId),
         AdminService.getPlatformSettings(),
         AdminService.getHeroBanners(),
         AdminService.getFlashSales(),
@@ -63,6 +73,8 @@ export default function AdminDashboardPage() {
 
       setMetrics(m);
       setStores(s);
+      setNameRequests(reqs);
+      setProducts(prods);
       setSettings(sett);
       setBanners(b);
       setFlashSales(f);
@@ -77,7 +89,18 @@ export default function AdminDashboardPage() {
     loadData();
   }, []);
 
-  // Handle Toggle Store Status
+  // Filter products when store changes
+  const handleStoreFilterChange = async (vendorId: string) => {
+    setSelectedVendorId(vendorId);
+    try {
+      const filtered = await AdminService.getProductsByStore(vendorId);
+      setProducts(filtered);
+    } catch (err) {
+      console.error('Error filtering products:', err);
+    }
+  };
+
+  // Handle Toggle Store Archive Status
   const handleToggleStoreStatus = async (storeId: string, currentArchived: boolean) => {
     try {
       await AdminService.toggleStoreStatus(storeId, !currentArchived);
@@ -86,10 +109,70 @@ export default function AdminDashboardPage() {
       );
       setMessage({
         type: 'success',
-        text: `Statut de la boutique mis à jour (${!currentArchived ? 'Désactivée/Archivée' : 'Vérifiée & Active'}).`,
+        text: `Statut de la boutique mis à jour (${!currentArchived ? 'Désactivée' : 'Réactivée'}).`,
       });
     } catch (err: any) {
       setMessage({ type: 'error', text: 'Erreur lors de la mise à jour.' });
+    }
+  };
+
+  // Handle Toggle Store Verification Badge
+  const handleToggleVerification = async (storeId: string, currentVerified: boolean) => {
+    try {
+      await AdminService.toggleStoreVerification(storeId, !currentVerified);
+      setStores((prev) =>
+        prev.map((s) => (s.id === storeId ? { ...s, is_verified: !currentVerified } : s))
+      );
+      setMessage({
+        type: 'success',
+        text: `Badge de vérification boutique ${!currentVerified ? 'accordé (Officiel)' : 'retiré'}.`,
+      });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: 'Erreur lors du changement de badge vérifié.' });
+    }
+  };
+
+  // Handle Approve Store Name Change
+  const handleApproveNameChange = async (storeId: string, approvedName: string) => {
+    try {
+      await AdminService.approveStoreNameChange(storeId, approvedName);
+      setMessage({
+        type: 'success',
+        text: `Nom commercial approuvé et mis à jour : "${approvedName}".`,
+      });
+      loadData();
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Erreur lors de l\'approbation du nom.' });
+    }
+  };
+
+  // Handle Reject Store Name Change
+  const handleRejectNameChange = async (storeId: string) => {
+    try {
+      await AdminService.rejectStoreNameChange(storeId);
+      setMessage({
+        type: 'success',
+        text: 'Demande de modification de nom rejetée.',
+      });
+      loadData();
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Erreur lors du rejet.' });
+    }
+  };
+
+  // Handle Toggle Product Archive
+  const handleToggleProductArchive = async (productId: string, isCurrentlyArchived: boolean) => {
+    try {
+      await AdminService.toggleProductArchive(productId, !isCurrentlyArchived);
+      setProducts((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, status: !isCurrentlyArchived ? 'archived' : 'active' } : p))
+      );
+      setMessage({
+        type: 'success',
+        text: `Article ${!isCurrentlyArchived ? 'archivé / désactivé' : 'réactivé'} avec succès.`,
+      });
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Erreur lors du changement de statut de l\'article.' });
     }
   };
 
@@ -150,7 +233,7 @@ export default function AdminDashboardPage() {
             Tableau de Bord Administrateur
           </h1>
           <p className="text-xs text-neutral-400 mt-0.5">
-            Supervision globale, modération des vendeurs, taux de change et campagnes promotionnelles.
+            Supervision globale, modération des vendeurs, vérification des boutiques et taux de change Lubumbashi.
           </p>
         </div>
 
@@ -188,11 +271,11 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Tabs Bar */}
-      <div className="flex items-center gap-2 border-b border-neutral-800">
+      <div className="flex items-center gap-2 border-b border-neutral-800 overflow-x-auto scrollbar-none">
         <button
           type="button"
           onClick={() => setActiveTab('analytics')}
-          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 ${
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'analytics'
               ? 'border-amber-400 text-amber-400 font-bold'
               : 'border-transparent text-neutral-400 hover:text-white'
@@ -205,7 +288,7 @@ export default function AdminDashboardPage() {
         <button
           type="button"
           onClick={() => setActiveTab('stores')}
-          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 ${
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'stores'
               ? 'border-amber-400 text-amber-400 font-bold'
               : 'border-transparent text-neutral-400 hover:text-white'
@@ -217,8 +300,39 @@ export default function AdminDashboardPage() {
 
         <button
           type="button"
+          onClick={() => setActiveTab('products')}
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'products'
+              ? 'border-amber-400 text-amber-400 font-bold'
+              : 'border-transparent text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>Articles par Boutique ({products.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('requests')}
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'requests'
+              ? 'border-amber-400 text-amber-400 font-bold'
+              : 'border-transparent text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Edit className="w-4 h-4" />
+          <span>Demandes de Renommage</span>
+          {nameRequests.length > 0 && (
+            <span className="px-1.5 py-0.2 bg-amber-400 text-black text-[10px] font-bold rounded-full">
+              {nameRequests.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('settings')}
-          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 ${
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'settings'
               ? 'border-amber-400 text-amber-400 font-bold'
               : 'border-transparent text-neutral-400 hover:text-white'
@@ -231,7 +345,7 @@ export default function AdminDashboardPage() {
         <button
           type="button"
           onClick={() => setActiveTab('banners_flash')}
-          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 ${
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'banners_flash'
               ? 'border-amber-400 text-amber-400 font-bold'
               : 'border-transparent text-neutral-400 hover:text-white'
@@ -316,11 +430,14 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 2: STORES MODERATION */}
+          {/* TAB 2: STORES MODERATION & VERIFICATION */}
           {activeTab === 'stores' && (
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow">
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow space-y-4">
               <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
-                <h3 className="font-serif text-base font-bold text-white">Boutiques et Créateurs Inscrits</h3>
+                <div>
+                  <h3 className="font-serif text-base font-bold text-white">Boutiques et Créateurs Inscrits</h3>
+                  <p className="text-xs text-neutral-400">Attribuez le badge officiel et modérez l'accès des vendeurs.</p>
+                </div>
                 <span className="text-xs text-neutral-400">{stores.length} boutiques</span>
               </div>
 
@@ -331,15 +448,28 @@ export default function AdminDashboardPage() {
                       <th className="py-3 px-4">Boutique</th>
                       <th className="py-3 px-4">Propriétaire / Vendeur</th>
                       <th className="py-3 px-4">Ville / Commune</th>
+                      <th className="py-3 px-4">Badge Officiel</th>
                       <th className="py-3 px-4">Statut</th>
-                      <th className="py-3 px-4 text-right">Modération</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-800">
                     {stores.map((st) => (
                       <tr key={st.id} className="hover:bg-neutral-800/40 transition">
-                        <td className="py-3 px-4 font-semibold text-white">
-                          {st.store_name}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white">{st.store_name}</span>
+                            {st.is_verified && (
+                              <span title="Boutique Officielle Vérifiée">
+                                <BadgeCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                              </span>
+                            )}
+                          </div>
+                          {st.pending_name && (
+                            <span className="text-[10px] text-amber-400 block mt-0.5">
+                              Demande en attente : "{st.pending_name}"
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-neutral-300">
                           <p>{st.users?.full_name || 'Vendeur'}</p>
@@ -349,6 +479,20 @@ export default function AdminDashboardPage() {
                           {st.city || 'Lubumbashi'}
                         </td>
                         <td className="py-3 px-4">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleVerification(st.id, st.is_verified)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1 transition ${
+                              st.is_verified
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            <BadgeCheck className="w-3 h-3" />
+                            <span>{st.is_verified ? 'Vérifié' : 'Non Vérifié'}</span>
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               !st.is_archived
@@ -356,7 +500,7 @@ export default function AdminDashboardPage() {
                                 : 'bg-red-500/20 text-red-400 border border-red-500/30'
                             }`}
                           >
-                            {!st.is_archived ? 'Vérifiée & Active' : 'Archivée / Suspendue'}
+                            {!st.is_archived ? 'Active' : 'Suspendue'}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
@@ -380,11 +524,192 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 3: PLATFORM SETTINGS */}
+          {/* TAB 3: PRODUCTS BY STORE VIEW */}
+          {activeTab === 'products' && (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow space-y-4">
+              <div className="p-4 border-b border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-serif text-base font-bold text-white">Gestion du Catalogue par Boutique</h3>
+                  <p className="text-xs text-neutral-400">Consultez et désactivez/archivez les articles par boutique.</p>
+                </div>
+
+                {/* Store Filter Selector */}
+                <div className="flex items-center gap-2">
+                  <Filter className="w-3.5 h-3.5 text-neutral-400" />
+                  <select
+                    value={selectedVendorId}
+                    onChange={(e) => handleStoreFilterChange(e.target.value)}
+                    className="px-3 py-1.5 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-amber-400"
+                  >
+                    <option value="all">Toutes les boutiques ({stores.length})</option>
+                    {stores.map((s) => (
+                      <option key={s.id} value={s.vendor_id}>
+                        {s.store_name} ({s.city || 'Lubumbashi'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {products.length === 0 ? (
+                <div className="py-16 text-center text-neutral-400">
+                  <Package className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-semibold">Aucun article trouvé pour cette sélection.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] tracking-wider border-b border-neutral-800">
+                      <tr>
+                        <th className="py-3 px-4">Article</th>
+                        <th className="py-3 px-4">Boutique</th>
+                        <th className="py-3 px-4">Catégorie</th>
+                        <th className="py-3 px-4">Prix USD</th>
+                        <th className="py-3 px-4">Stock</th>
+                        <th className="py-3 px-4">Statut</th>
+                        <th className="py-3 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-800">
+                      {products.map((p) => {
+                        const img = p.images_urls?.[0] || 'https://placehold.co/100x120/png?text=Item';
+                        const isArchived = p.status === 'archived';
+
+                        return (
+                          <tr key={p.id} className="hover:bg-neutral-800/40 transition">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-3">
+                                <div className="relative w-10 h-12 rounded bg-neutral-950 overflow-hidden flex-shrink-0 border border-neutral-800">
+                                  <Image src={img} alt={p.title} fill className="object-cover" sizes="40px" />
+                                </div>
+                                <div>
+                                  <p className={`font-semibold ${isArchived ? 'line-through text-neutral-500' : 'text-white'}`}>
+                                    {p.title}
+                                  </p>
+                                  <span className="text-[10px] text-neutral-400 uppercase">{p.target_gender}</span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-neutral-300 font-medium">
+                              {p.stores?.store_name || 'Boutique'}
+                            </td>
+                            <td className="py-3 px-4 capitalize text-neutral-300">
+                              {p.category || 'Mode'}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-white">
+                              ${p.price_usd}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                p.stock_count > 3 ? 'text-emerald-400 bg-emerald-500/10' : 'text-amber-400 bg-amber-500/10'
+                              }`}>
+                                {p.stock_count} dispo
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${
+                                isArchived ? 'bg-neutral-800 text-neutral-400' : 'bg-emerald-500/20 text-emerald-400'
+                              }`}>
+                                {p.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleProductArchive(p.id, isArchived)}
+                                className={`px-3 py-1 rounded text-[11px] font-semibold transition ${
+                                  isArchived
+                                    ? 'bg-emerald-500 text-black hover:bg-emerald-400'
+                                    : 'bg-neutral-800 text-amber-400 hover:bg-amber-950'
+                                }`}
+                              >
+                                {isArchived ? 'Réactiver' : 'Archiver / Désactiver'}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: STORE NAME CHANGE REQUESTS */}
+          {activeTab === 'requests' && (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow space-y-4">
+              <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
+                <div>
+                  <h3 className="font-serif text-base font-bold text-white">Demandes de Modification de Nom Commercial</h3>
+                  <p className="text-xs text-neutral-400">Validez ou refusez les demandes de renommage soumises par les vendeurs.</p>
+                </div>
+                <span className="text-xs text-amber-400 font-bold">{nameRequests.length} demande(s) en attente</span>
+              </div>
+
+              {nameRequests.length === 0 ? (
+                <div className="py-16 text-center text-neutral-400">
+                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
+                  <p className="text-sm font-semibold text-white">Aucune demande en attente</p>
+                  <p className="text-xs text-neutral-400 mt-1">Toutes les demandes de renommage ont été traitées.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-neutral-800">
+                  {nameRequests.map((req) => (
+                    <div key={req.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-neutral-800/30 transition">
+                      <div className="space-y-1 max-w-xl">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-neutral-400 line-through">
+                            {req.store_name}
+                          </span>
+                          <span className="text-sm font-bold text-amber-400">
+                            ➔ {req.pending_name}
+                          </span>
+                        </div>
+
+                        {req.pending_name_reason && (
+                          <p className="text-xs text-neutral-300 italic">
+                            Motif : "{req.pending_name_reason}"
+                          </p>
+                        )}
+
+                        <div className="text-[11px] text-neutral-400 flex items-center gap-2 mt-1">
+                          <span>Vendeur : <strong className="text-neutral-200">{req.users?.full_name || 'Vendeur'}</strong></span>
+                          <span>• {req.users?.phone || req.users?.email}</span>
+                          <span>• {req.city || 'Lubumbashi'}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end md:self-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRejectNameChange(req.id)}
+                          className="px-3.5 py-1.5 bg-neutral-800 text-red-400 text-xs font-semibold rounded-lg hover:bg-red-950 transition flex items-center gap-1.5"
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                          <span>Rejeter</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveNameChange(req.id, req.pending_name)}
+                          className="px-4 py-1.5 bg-emerald-500 text-black text-xs font-bold rounded-lg hover:bg-emerald-400 transition flex items-center gap-1.5 shadow"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Approuver</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: PLATFORM SETTINGS */}
           {activeTab === 'settings' && settings && (
             <form onSubmit={handleSaveSettings} className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow max-w-2xl space-y-4">
               <h3 className="font-serif text-base font-bold text-white border-b border-neutral-800 pb-3">
-                Paramètres Monétaires & Lignes Mobile Money
+                Paramètres Monétaires & Lignes Mobile Money (Lubumbashi)
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -464,7 +789,7 @@ export default function AdminDashboardPage() {
             </form>
           )}
 
-          {/* TAB 4: HERO BANNERS & FLASH SALES */}
+          {/* TAB 6: HERO BANNERS & FLASH SALES */}
           {activeTab === 'banners_flash' && (
             <div className="space-y-6">
               {/* Hero Banners */}
