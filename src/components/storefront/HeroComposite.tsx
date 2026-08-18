@@ -17,9 +17,10 @@ import {
 } from 'lucide-react';
 import { HeroBanner } from '@/types/schema';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
+import { HeroBanner3D } from './HeroBanner3D';
 
 interface HeroCompositeProps {
-  banners: HeroBanner[];
+  banners?: HeroBanner[];
 }
 
 export function HeroComposite({ banners }: HeroCompositeProps) {
@@ -151,88 +152,16 @@ export function HeroComposite({ banners }: HeroCompositeProps) {
           </Link>
         </div>
 
-        {/* Center Column: Main Carousel Slider */}
-        <div className="lg:col-span-6 relative h-[340px] sm:h-[400px] lg:h-[460px] bg-brand-black overflow-hidden rounded-lg shadow-xl">
-          {/* Background Slide */}
-          <div className="relative w-full h-full">
-            <Image
-              src={current.media_url}
-              alt={current.title}
-              fill
-              priority
-              className="object-cover object-center opacity-80 transition-all duration-700"
-              sizes="(max-width: 1024px) 100vw, 50vw"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-          </div>
-
-          {/* Content Overlay */}
-          <div className="absolute inset-0 flex flex-col justify-end p-6 sm:p-10 text-white z-10">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500 text-black rounded text-[10px] font-bold uppercase tracking-wider mb-3 w-max shadow">
-              <Sparkles className="w-3 h-3" />
-              Édition Spéciale Lubumbashi
-            </div>
-
-            <h1 className="font-serif text-xl sm:text-3xl lg:text-4xl font-bold tracking-tight leading-tight">
-              {current.title}
-            </h1>
-
-            <p className="text-xs text-neutral-300 mt-2 line-clamp-2 max-w-lg">
-              Explorez les créations exclusives de nos boutiques partenaires avec livraison rapide et retours garantis.
-            </p>
-
-            <div className="mt-5 flex items-center gap-3">
-              <Link
-                href={current.click_action_route || '/'}
-                className="px-5 py-2.5 bg-white text-brand-black font-semibold text-xs uppercase tracking-wider rounded hover:bg-neutral-200 transition shadow"
-              >
-                Acheter Maintenant
-              </Link>
-              <Link
-                href="/?category=all"
-                className="px-4 py-2.5 bg-white/20 backdrop-blur-md text-white font-semibold text-xs uppercase tracking-wider rounded hover:bg-white/30 transition"
-              >
-                Tous les Articles
-              </Link>
-            </div>
-          </div>
-
-          {/* Slider Controls */}
-          {activeBanners.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={prevSlide}
-                className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition backdrop-blur-sm z-20"
-                aria-label="Previous Slide"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={nextSlide}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition backdrop-blur-sm z-20"
-                aria-label="Next Slide"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-
-              {/* Indicator Dots */}
-              <div className="absolute bottom-3 right-6 flex items-center gap-1.5 z-20">
-                {activeBanners.map((_, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setCurrentIndex(idx)}
-                    className={`h-1 rounded-full transition-all ${
-                      idx === currentIndex ? 'w-5 bg-white' : 'w-1.5 bg-white/40'
-                    }`}
-                    aria-label={`Slide ${idx + 1}`}
-                  />
-                ))}
-              </div>
-            </>
-          )}
+        {/* Center Column: Interactive 3D Hero Banner */}
+        <div className="lg:col-span-6 relative">
+          <HeroBanner3D
+            title="Haute Couture & Luxe Katanga"
+            subtitle="Explorez les créations exclusives de nos boutiques partenaires de Lubumbashi en 3D temps réel."
+            primaryCtaText="Acheter Maintenant"
+            primaryCtaLink="/?category=robes"
+            secondaryCtaText="Créateurs Katangais"
+            secondaryCtaLink="/?category=createurs"
+          />
         </div>
 
         {/* Right Column: 3 Featured Brand / Boutique Cards */}
