@@ -66,7 +66,7 @@ export function ProductGrid({ products, genderFilter, onGenderFilterChange }: Pr
   ];
 
   return (
-    <section className="my-8">
+    <section id="catalog-section" className="my-8 scroll-mt-24 sm:scroll-mt-28">
       {/* Themed Filter Tabs & Sort Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-brand-border">
         {/* Horizontal Theme Tabs */}

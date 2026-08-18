@@ -105,8 +105,8 @@ export function Navbar() {
 
             {/* Action Buttons, Wishlist, Cart & Switchers */}
             <div className="flex items-center gap-2.5 sm:gap-4">
-              {/* Currency Selector (USD / CDF) */}
-              <div className="flex items-center text-xs font-semibold bg-brand-lightGray rounded-full p-0.5 border border-brand-border">
+              {/* Currency Selector (USD / CDF) - Hidden on mobile, available in Mobile Menu Drawer */}
+              <div className="hidden md:flex items-center text-xs font-semibold bg-brand-lightGray rounded-full p-0.5 border border-brand-border">
                 <button
                   type="button"
                   onClick={() => setCurrency('USD')}
@@ -131,16 +131,18 @@ export function Navbar() {
                 </button>
               </div>
 
-              {/* Language Selector (FR / EN / SW) */}
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as Language)}
-                className="text-xs font-semibold bg-brand-lightGray border border-brand-border rounded-full py-1 px-2.5 focus:outline-none cursor-pointer"
-              >
-                <option value="fr">FR</option>
-                <option value="en">EN</option>
-                <option value="sw">SW</option>
-              </select>
+              {/* Language Selector (FR / EN / SW) - Hidden on mobile, available in Mobile Menu Drawer */}
+              <div className="hidden md:flex items-center">
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as Language)}
+                  className="text-xs font-semibold bg-brand-lightGray border border-brand-border rounded-full py-1 px-2.5 focus:outline-none cursor-pointer"
+                >
+                  <option value="fr">FR</option>
+                  <option value="en">EN</option>
+                  <option value="sw">SW</option>
+                </select>
+              </div>
 
               {/* Wishlist Favorites Button */}
               <Link
@@ -284,73 +286,175 @@ export function Navbar() {
       {/* Horizontal Category Mega Menu */}
       <MegaMenu />
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu Overlay / Drawer */}
       {isMobileMenuOpen && (
-        <div className="md:hidden bg-white border-b border-brand-border px-4 py-4 space-y-3 animate-in slide-in-from-top-2">
-          <Link
-            href="/"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="block py-1.5 text-sm font-semibold text-brand-black"
-          >
-            {t('allProducts')}
-          </Link>
-          <Link
-            href="/?gender=women"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="block py-1.5 text-sm text-neutral-700"
-          >
-            {t('megaMenuWomen')}
-          </Link>
-          <Link
-            href="/?gender=men"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="block py-1.5 text-sm text-neutral-700"
-          >
-            {t('megaMenuMen')}
-          </Link>
-          <Link
-            href="/orders"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="block py-1.5 text-sm text-neutral-700"
-          >
-            {t('myOrders')}
-          </Link>
-          <Link
-            href="/cart"
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="block py-1.5 text-sm text-neutral-700"
-          >
-            {t('cartTitle')} ({cartCount})
-          </Link>
-
-          {user && (user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin')) && (
+        <div className="md:hidden bg-white border-b border-brand-border px-4 py-5 space-y-4 animate-in slide-in-from-top-2 shadow-xl">
+          {/* Navigation Links */}
+          <div className="space-y-2 border-b border-brand-border pb-4">
             <Link
-              href="/vendor/dashboard"
+              href="/"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="block py-1.5 text-sm font-semibold text-amber-700"
+              className="block py-1.5 text-sm font-bold text-brand-black"
             >
-              🏪 Espace Vendeur
+              {t('allProducts')}
             </Link>
-          )}
-
-          {user && (user.role === 'admin' || user.email?.includes('admin')) && (
             <Link
-              href="/admin/dashboard"
+              href="/?gender=women"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="block py-1.5 text-sm font-semibold text-neutral-900"
+              className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
             >
-              🛡️ Administration
+              {t('megaMenuWomen')}
             </Link>
-          )}
+            <Link
+              href="/?gender=men"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
+            >
+              {t('megaMenuMen')}
+            </Link>
+            <Link
+              href="/orders"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
+            >
+              {t('myOrders')}
+            </Link>
+            <Link
+              href="/cart"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
+            >
+              {t('cartTitle')} ({cartCount})
+            </Link>
+            <Link
+              href="/?wishlist=true"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
+            >
+              {t('wishlistTitle')} ({favoriteCount})
+            </Link>
 
-          {!user && (
+            {user && (user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin')) && (
+              <Link
+                href="/vendor/dashboard"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block py-2 text-sm font-semibold text-amber-800 bg-amber-50 px-3 rounded"
+              >
+                🏪 Espace Vendeur
+              </Link>
+            )}
+
+            {user && (user.role === 'admin' || user.email?.includes('admin')) && (
+              <Link
+                href="/admin/dashboard"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block py-2 text-sm font-semibold text-neutral-900 bg-neutral-100 px-3 rounded"
+              >
+                🛡️ Administration
+              </Link>
+            )}
+          </div>
+
+          {/* Dedicated "Préférences & Devise" Section */}
+          <div className="bg-brand-offWhite p-3.5 rounded-lg border border-brand-border space-y-3">
+            <p className="text-[10px] uppercase font-bold text-brand-gray tracking-wider">
+              Préférences & Devise
+            </p>
+
+            {/* Currency Selector (USD / CDF) */}
+            <div>
+              <label className="block text-[11px] font-semibold text-brand-black mb-1.5">
+                Devise d'affichage
+              </label>
+              <div className="grid grid-cols-2 gap-2 bg-white p-1 rounded-md border border-brand-border">
+                <button
+                  type="button"
+                  onClick={() => setCurrency('USD')}
+                  className={`py-1.5 text-xs font-bold rounded transition ${
+                    currency === 'USD'
+                      ? 'bg-brand-black text-white shadow-sm'
+                      : 'text-brand-gray hover:text-brand-black'
+                  }`}
+                >
+                  USD ($)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrency('CDF')}
+                  className={`py-1.5 text-xs font-bold rounded transition ${
+                    currency === 'CDF'
+                      ? 'bg-brand-black text-white shadow-sm'
+                      : 'text-brand-gray hover:text-brand-black'
+                  }`}
+                >
+                  CDF (FC)
+                </button>
+              </div>
+            </div>
+
+            {/* Language Selector (FR / EN / SW) */}
+            <div>
+              <label className="block text-[11px] font-semibold text-brand-black mb-1.5">
+                Langue / Lugha
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setLanguage('fr')}
+                  className={`py-1.5 px-2 text-xs font-semibold rounded border transition ${
+                    language === 'fr'
+                      ? 'bg-brand-black text-white border-brand-black shadow-sm font-bold'
+                      : 'bg-white text-neutral-700 border-brand-border hover:bg-neutral-100'
+                  }`}
+                >
+                  Français
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLanguage('en')}
+                  className={`py-1.5 px-2 text-xs font-semibold rounded border transition ${
+                    language === 'en'
+                      ? 'bg-brand-black text-white border-brand-black shadow-sm font-bold'
+                      : 'bg-white text-neutral-700 border-brand-border hover:bg-neutral-100'
+                  }`}
+                >
+                  English
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLanguage('sw')}
+                  className={`py-1.5 px-2 text-xs font-semibold rounded border transition ${
+                    language === 'sw'
+                      ? 'bg-brand-black text-white border-brand-black shadow-sm font-bold'
+                      : 'bg-white text-neutral-700 border-brand-border hover:bg-neutral-100'
+                  }`}
+                >
+                  Kiswahili
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* User Auth Action */}
+          {!user ? (
             <Link
               href="/login"
               onClick={() => setIsMobileMenuOpen(false)}
-              className="block w-full text-center py-2.5 text-xs font-bold uppercase tracking-wider bg-brand-black text-white rounded"
+              className="block w-full text-center py-2.5 text-xs font-bold uppercase tracking-wider bg-brand-black text-white rounded hover:bg-brand-charcoal transition"
             >
               {t('loginRegisterMobile')}
             </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                signOut();
+              }}
+              className="w-full py-2 text-xs font-bold text-red-600 border border-red-200 rounded hover:bg-red-50 transition"
+            >
+              {t('signOut')}
+            </button>
           )}
         </div>
       )}

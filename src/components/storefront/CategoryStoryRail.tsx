@@ -78,6 +78,16 @@ export function CategoryStoryRail({
     }
   };
 
+  const handleCategoryClick = (slug: string) => {
+    onSelectCategory(slug);
+    if (typeof window !== 'undefined') {
+      const catalogEl = document.getElementById('catalog-section');
+      if (catalogEl) {
+        catalogEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  };
+
   return (
     <section className="relative my-6 sm:my-8 py-2">
       <div className="flex items-center justify-between mb-3 px-1">
@@ -112,7 +122,7 @@ export function CategoryStoryRail({
             <button
               key={item.slug}
               type="button"
-              onClick={() => onSelectCategory(item.slug)}
+              onClick={() => handleCategoryClick(item.slug)}
               className="flex flex-col items-center gap-2 flex-shrink-0 group focus:outline-none min-w-[64px]"
             >
               {/* Circular Story Bubble */}

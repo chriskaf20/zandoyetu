@@ -67,6 +67,18 @@ export function MegaMenu() {
 
   const selectedDepartment = departments.find((d) => d.slug === activeDepartmentSlug) || departments[0];
 
+  const handleCategoryLinkClick = () => {
+    setActiveMenu(null);
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        const catalogEl = document.getElementById('catalog-section');
+        if (catalogEl) {
+          catalogEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    }
+  };
+
   return (
     <div 
       ref={menuRef} 
@@ -168,7 +180,7 @@ export function MegaMenu() {
                   </h3>
                   <Link
                     href={`/?category=${selectedDepartment.slug}`}
-                    onClick={() => setActiveMenu(null)}
+                    onClick={handleCategoryLinkClick}
                     className="text-xs font-semibold text-brand-black hover:underline inline-flex items-center gap-1"
                   >
                     <span>Voir tout le rayon</span>
@@ -184,7 +196,7 @@ export function MegaMenu() {
                     >
                       <Link
                         href={`/?category=${sub.slug}`}
-                        onClick={() => setActiveMenu(null)}
+                        onClick={handleCategoryLinkClick}
                         className="group flex items-center gap-3 mb-2"
                       >
                         <div className="relative w-12 h-12 rounded-full overflow-hidden flex-shrink-0 border border-brand-border shadow-sm">
@@ -210,7 +222,7 @@ export function MegaMenu() {
                           <Link
                             key={item}
                             href={`/?search=${encodeURIComponent(item)}`}
-                            onClick={() => setActiveMenu(null)}
+                            onClick={handleCategoryLinkClick}
                             className="text-[10px] text-neutral-600 bg-white hover:bg-brand-black hover:text-white px-2 py-0.5 rounded border border-neutral-200 transition"
                           >
                             {item}
@@ -227,7 +239,7 @@ export function MegaMenu() {
                 <div className="col-span-3 pl-2">
                   <Link
                     href={selectedDepartment.promoBanner.link}
-                    onClick={() => setActiveMenu(null)}
+                    onClick={handleCategoryLinkClick}
                     className="group block relative h-full min-h-[260px] rounded-md overflow-hidden shadow-md"
                   >
                     <Image

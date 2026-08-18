@@ -13,12 +13,22 @@ interface CategoryRailProps {
 export function CategoryRail({ categories, selectedCategory, onSelectCategory }: CategoryRailProps) {
   const rootCategories = categories.filter((c) => c.tier === 1);
 
+  const handleSelect = (slug: string) => {
+    onSelectCategory(slug);
+    if (typeof window !== 'undefined') {
+      const catalogEl = document.getElementById('catalog-section');
+      if (catalogEl) {
+        catalogEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  };
+
   return (
     <div className="mb-8 border-b border-brand-border pb-4">
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2">
         <button
           type="button"
-          onClick={() => onSelectCategory('all')}
+          onClick={() => handleSelect('all')}
           className={`px-4 py-2 rounded text-xs font-semibold whitespace-nowrap uppercase tracking-wider transition ${
             selectedCategory === 'all'
               ? 'bg-brand-black text-white'
@@ -32,7 +42,7 @@ export function CategoryRail({ categories, selectedCategory, onSelectCategory }:
           <button
             key={cat.id}
             type="button"
-            onClick={() => onSelectCategory(cat.slug || cat.name.toLowerCase())}
+            onClick={() => handleSelect(cat.slug || cat.name.toLowerCase())}
             className={`px-4 py-2 rounded text-xs font-semibold whitespace-nowrap uppercase tracking-wider transition ${
               selectedCategory === (cat.slug || cat.name.toLowerCase())
                 ? 'bg-brand-black text-white'
