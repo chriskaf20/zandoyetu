@@ -155,10 +155,10 @@ export function HeroComposite({ banners }: HeroCompositeProps) {
         {/* Center Column: Interactive 3D Hero Banner */}
         <div className="lg:col-span-6 relative">
           <HeroBanner3D
-            title="Haute Couture & Luxe Katanga"
-            subtitle="Explorez les créations exclusives de nos boutiques partenaires de Lubumbashi en 3D temps réel."
-            primaryCtaText="Acheter Maintenant"
-            primaryCtaLink="/?category=robes"
+            title="Hoodies & Tendances Urbaines"
+            subtitle="Découvrez nos hoodies surdimensionnés et collections exclusives des créateurs de Lubumbashi en 3D interactif."
+            primaryCtaText="Commander le Hoodie"
+            primaryCtaLink="/?search=hoodie"
             secondaryCtaText="Créateurs Katangais"
             secondaryCtaLink="/?category=createurs"
           />
