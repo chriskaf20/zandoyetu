@@ -408,23 +408,50 @@ export class AdminService {
   /**
    * Get all orders platform-wide with customer and product information
    */
+  static async getOrders(): Promise<any[]> {
+    return this.getAllOrders();
+  }
+
   static async getAllOrders(): Promise<any[]> {
     try {
+      // First attempt with explicit foreign key join
       const { data, error } = await supabase
         .from('orders')
         .select(`
           *,
-          users:customer_id(id, full_name, email, phone),
-          products:product_id(id, title, price_usd, images_urls),
-          stores:vendor_id(id, store_name, city)
+          products(id, title, price_usd, images_urls),
+          users!orders_customer_id_fkey(full_name, phone, email)
         `)
         .order('timestamp', { ascending: false });
 
-      if (error) {
-        console.error('[AdminService] Error fetching all orders:', error);
+      if (!error && data) {
+        return data.map((o: any) => ({
+          ...o,
+          products: Array.isArray(o.products) ? o.products[0] || null : o.products || null,
+          users: Array.isArray(o.users) ? o.users[0] || null : o.users || null,
+        }));
+      }
+
+      // Fallback query if FK alias differs
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          products(id, title, price_usd, images_urls),
+          users:customer_id(full_name, phone, email)
+        `)
+        .order('timestamp', { ascending: false });
+
+      if (fallbackError) {
+        console.error('[AdminService] Error fetching all orders:', fallbackError);
         return [];
       }
-      return data || [];
+
+      return (fallbackData || []).map((o: any) => ({
+        ...o,
+        products: Array.isArray(o.products) ? o.products[0] || null : o.products || null,
+        users: Array.isArray(o.users) ? o.users[0] || null : o.users || null,
+      }));
     } catch (err) {
       console.error('[AdminService] Error fetching all orders:', err);
       return [];

@@ -277,18 +277,27 @@ export class VendorService {
    * Get vendor-specific orders
    */
   static async getVendorOrders(vendorId: string): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*, products(title, images_urls, price_usd), users:customer_id(full_name, phone, email)')
-      .eq('vendor_id', vendorId)
-      .order('timestamp', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, products(id, title, images_urls, price_usd), users:customer_id(full_name, phone, email)')
+        .eq('vendor_id', vendorId)
+        .order('timestamp', { ascending: false });
 
-    if (error) {
-      console.error('[VendorService] Error fetching vendor orders:', error);
+      if (error) {
+        console.error('[VendorService] Error fetching vendor orders:', error);
+        return [];
+      }
+
+      return (data || []).map((o: any) => ({
+        ...o,
+        products: Array.isArray(o.products) ? o.products[0] || null : o.products || null,
+        users: Array.isArray(o.users) ? o.users[0] || null : o.users || null,
+      }));
+    } catch (err) {
+      console.error('[VendorService] Error in getVendorOrders:', err);
       return [];
     }
-
-    return data || [];
   }
 
   /**

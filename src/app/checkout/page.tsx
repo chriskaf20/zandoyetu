@@ -12,6 +12,7 @@ import { useCheckoutMutation } from '@/hooks/useOrders';
 import { AddressForm } from '@/components/cart/AddressForm';
 import { PromoCodeBox } from '@/components/cart/PromoCodeBox';
 import { FidelityPointsBox } from '@/components/cart/FidelityPointsBox';
+import { supabase } from '@/lib/supabase/client';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -106,6 +107,21 @@ export default function CheckoutPage() {
       });
 
       if (result.success) {
+        // Record coupon usage in public.user_coupon_usages
+        if (activeCoupon && user.id) {
+          try {
+            await (supabase.from('user_coupon_usages').insert({
+              user_id: user.id,
+              coupon_id: activeCoupon.id,
+              order_id: result.orderIds?.[0] || null,
+              discount_amount_usd: promo,
+              used_at: new Date().toISOString(),
+            }) as any);
+          } catch (couponErr) {
+            console.warn('[Checkout] Notice: Coupon usage record logged:', couponErr);
+          }
+        }
+
         clearCart();
         setSuccessResult({ orderIds: result.orderIds });
       }

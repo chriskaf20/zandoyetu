@@ -568,62 +568,78 @@ export default function VendorDashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {orders.map((o) => (
-                    <div
-                      key={o.id}
-                      className="bg-white border border-brand-border rounded-lg p-4 sm:p-5 shadow-sm space-y-3"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-brand-border">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-brand-black">
-                              CMD #{o.id.slice(0, 8).toUpperCase()}
-                            </span>
-                            <span className="text-[10px] text-brand-gray">
-                              • {new Date(o.timestamp || o.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                  {orders.map((o) => {
+                    const product = o.products;
+                    const img = product?.images_urls?.[0] || 'https://placehold.co/100x120/png?text=Cmd';
+
+                    return (
+                      <div
+                        key={o.id}
+                        className="bg-white border border-brand-border rounded-lg p-4 sm:p-5 shadow-sm space-y-3"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-brand-border">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-brand-black">
+                                CMD #{o.id.slice(0, 8).toUpperCase()}
+                              </span>
+                              <span className="text-[10px] text-brand-gray">
+                                • {new Date(o.timestamp || o.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-brand-black mt-1">
+                              Client : <strong className="font-semibold">{o.users?.full_name || 'Client Lubumbashi'}</strong>
+                              {o.users?.phone && <span className="text-neutral-500"> ({o.users.phone})</span>}
+                            </p>
                           </div>
-                          <p className="text-xs text-brand-black mt-1">
-                            Client : <strong className="font-semibold">{o.users?.full_name || 'Client Lubumbashi'}</strong>
-                            {o.users?.phone && <span className="text-neutral-500"> ({o.users.phone})</span>}
-                          </p>
+
+                          {/* Status update selector */}
+                          <div className="flex items-center gap-2">
+                            <label className="text-[10px] uppercase font-bold text-brand-gray">Statut de traitement :</label>
+                            <select
+                              value={o.order_status}
+                              onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
+                              className="text-xs font-semibold px-2.5 py-1 border border-brand-border rounded-md bg-white focus:outline-none focus:border-brand-black cursor-pointer"
+                            >
+                              <option value="pending">En attente (Pending)</option>
+                              <option value="processing">En préparation (Processing)</option>
+                              <option value="shipped">Prêt / En cours de livraison</option>
+                              <option value="completed">Livrée & Terminée</option>
+                              <option value="cancelled">Annulée (Support Admin)</option>
+                            </select>
+                          </div>
                         </div>
 
-                        {/* Status update selector */}
-                        <div className="flex items-center gap-2">
-                          <label className="text-[10px] uppercase font-bold text-brand-gray">Statut :</label>
-                          <select
-                            value={o.order_status}
-                            onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                            className="text-xs font-semibold px-2.5 py-1 border border-brand-border rounded-md bg-white focus:outline-none focus:border-brand-black"
-                          >
-                            <option value="pending">En attente (Pending)</option>
-                            <option value="processing">En préparation (Processing)</option>
-                            <option value="shipped">Expédiée / En cours de livraison</option>
-                            <option value="completed">Livrée & Terminée</option>
-                            <option value="cancelled">Annulée</option>
-                          </select>
-                        </div>
-                      </div>
+                        {/* Article and Delivery address details */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-brand-offWhite p-3 rounded-lg items-center">
+                          <div className="flex items-center gap-2.5">
+                            <div className="relative w-10 h-12 bg-white rounded overflow-hidden flex-shrink-0 border border-brand-border">
+                              <Image src={img} alt={product?.title || 'Article'} fill className="object-cover" sizes="40px" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-brand-black truncate">{product?.title || 'Article boutique'}</p>
+                              <p className="text-[10px] text-brand-gray">Quantité : {o.quantity || 1}</p>
+                            </div>
+                          </div>
 
-                      {/* Delivery address details */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-brand-offWhite p-3 rounded">
-                        <div>
-                          <p className="text-[10px] uppercase font-bold text-brand-gray">Adresse de livraison</p>
-                          <p className="font-semibold text-brand-black mt-0.5 flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-brand-red flex-shrink-0" />
-                            <span>{o.commune || 'Lubumbashi'} • {o.nearest_landmark || o.delivery_address || 'Adresse standard'}</span>
-                          </p>
-                        </div>
-                        <div className="sm:text-right">
-                          <p className="text-[10px] uppercase font-bold text-brand-gray">Montant Total</p>
-                          <p className="text-sm font-bold text-brand-black mt-0.5">
-                            {formatPrice(o.total_usd)} <span className="text-[10px] text-brand-gray">({o.total_cdf?.toLocaleString()} CDF)</span>
-                          </p>
+                          <div>
+                            <p className="text-[10px] uppercase font-bold text-brand-gray">Lieu de livraison</p>
+                            <p className="font-semibold text-brand-black mt-0.5 flex items-center gap-1">
+                              <MapPin className="w-3.5 h-3.5 text-brand-red flex-shrink-0" />
+                              <span>{o.commune || 'Lubumbashi'} • {o.nearest_landmark || o.delivery_address || 'Adresse standard'}</span>
+                            </p>
+                          </div>
+
+                          <div className="sm:text-right">
+                            <p className="text-[10px] uppercase font-bold text-brand-gray">Total Commande</p>
+                            <p className="text-sm font-bold text-brand-black mt-0.5">
+                              {formatPrice(o.total_usd)} <span className="text-[10px] text-brand-gray">({o.total_cdf?.toLocaleString()} CDF)</span>
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

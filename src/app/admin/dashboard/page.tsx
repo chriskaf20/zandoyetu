@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { AdminService, PlatformMetrics, PlatformSettings } from '@/lib/services/AdminService';
 import { HeroBanner } from '@/types/schema';
+import { supabase } from '@/lib/supabase/client';
 
 type AdminTab = 'analytics' | 'stores' | 'products' | 'orders' | 'requests' | 'settings' | 'banners_flash';
 
@@ -103,6 +104,27 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     loadData();
+
+    // Real-time subscription for orders
+    const channel = supabase
+      .channel('admin-orders-realtime-channel')
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+        },
+        async () => {
+          const ords = await AdminService.getAllOrders();
+          setOrders(ords);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   // Filter products when store changes
@@ -573,18 +595,20 @@ export default function AdminDashboardPage() {
                     <thead className="bg-neutral-950 text-neutral-400 uppercase text-[10px] tracking-wider border-b border-neutral-800">
                       <tr>
                         <th className="py-3 px-4">Commande & Code</th>
+                        <th className="py-3 px-4">Article</th>
                         <th className="py-3 px-4">Client & Tél</th>
                         <th className="py-3 px-4">Adresse / Commune</th>
                         <th className="py-3 px-4">Montant Total</th>
-                        <th className="py-3 px-4">Mode de Paiement</th>
-                        <th className="py-3 px-4">Statut</th>
-                        <th className="py-3 px-4 text-right">Actions</th>
+                        <th className="py-3 px-4">Mode / Statut</th>
+                        <th className="py-3 px-4 text-right">Mettre à jour le statut</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-neutral-800">
                       {filteredOrders.map((o) => {
                         const deliveryCode = `CMD-${o.id.slice(0, 6).toUpperCase()}`;
                         const isCancelled = o.order_status === 'cancelled';
+                        const product = o.products;
+                        const img = product?.images_urls?.[0] || 'https://placehold.co/100x120/png?text=Cmd';
 
                         return (
                           <tr key={o.id} className="hover:bg-neutral-800/40 transition">
@@ -601,6 +625,18 @@ export default function AdminDashboardPage() {
                             </td>
 
                             <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-8 h-10 rounded bg-neutral-950 overflow-hidden flex-shrink-0 border border-neutral-800">
+                                  <Image src={img} alt={product?.title || 'Article'} fill className="object-cover" sizes="32px" />
+                                </div>
+                                <div className="max-w-[140px]">
+                                  <p className="text-white font-medium truncate">{product?.title || 'Article commandé'}</p>
+                                  <span className="text-[10px] text-neutral-400">Qté: {o.quantity || 1}</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-4">
                               <p className="font-semibold text-white">{o.users?.full_name || 'Client Lubumbashi'}</p>
                               <p className="text-[10px] text-neutral-400">{o.users?.phone || o.users?.email || 'Sans téléphone'}</p>
                             </td>
@@ -611,52 +647,82 @@ export default function AdminDashboardPage() {
                                 <span>{o.commune || 'Lubumbashi'}</span>
                               </div>
                               {o.nearest_landmark && (
-                                <p className="text-[10px] text-neutral-400 mt-0.5">{o.nearest_landmark}</p>
+                                <p className="text-[10px] text-neutral-400 mt-0.5 max-w-[150px] truncate">{o.nearest_landmark}</p>
                               )}
                             </td>
 
-                            <td className="py-3 px-4 font-bold text-white">
-                              ${o.total_usd} <span className="text-[10px] font-normal text-neutral-400">({o.total_cdf} FC)</span>
+                            <td className="py-3 px-4 font-bold text-white whitespace-nowrap">
+                              ${o.total_usd} <span className="text-[10px] font-normal text-neutral-400">({o.total_cdf?.toLocaleString()} FC)</span>
                             </td>
 
                             <td className="py-3 px-4">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-neutral-800 text-neutral-200 border border-neutral-700">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-neutral-800 text-neutral-200 border border-neutral-700 block mb-1 w-fit">
                                 {o.delivery_type || 'Cash on Delivery'}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                o.order_status === 'completed'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                  : o.order_status === 'cancelled'
+                                  ? 'bg-red-950 text-red-300 border border-red-800'
+                                  : o.order_status === 'shipped'
+                                  ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                                  : 'bg-amber-950 text-amber-300 border border-amber-800'
+                              }`}>
+                                {o.order_status === 'pending' ? 'En attente' :
+                                 o.order_status === 'processing' ? 'En préparation' :
+                                 o.order_status === 'shipped' ? 'Expédiée' :
+                                 o.order_status === 'completed' ? 'Livrée' : 'Annulée'}
                               </span>
                             </td>
 
-                            <td className="py-3 px-4">
-                              <select
-                                value={o.order_status}
-                                onChange={(e) => handleUpdateOrderStatus(o.id, e.target.value)}
-                                className={`text-[11px] font-semibold px-2 py-1 rounded border focus:outline-none ${
-                                  o.order_status === 'completed'
-                                    ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                    : o.order_status === 'cancelled'
-                                    ? 'bg-red-950 text-red-300 border-red-800'
-                                    : o.order_status === 'shipped'
-                                    ? 'bg-blue-950 text-blue-300 border-blue-800'
-                                    : 'bg-amber-950 text-amber-300 border-amber-800'
-                                }`}
-                              >
-                                <option value="pending">En attente</option>
-                                <option value="processing">En préparation</option>
-                                <option value="shipped">En livraison</option>
-                                <option value="completed">Livrée & Terminée</option>
-                                <option value="cancelled">Annulée</option>
-                              </select>
-                            </td>
-
                             <td className="py-3 px-4 text-right">
-                              {!isCancelled && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateOrderStatus(o.id, 'cancelled')}
-                                  className="px-2.5 py-1 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-950/50 rounded transition border border-red-900/40"
-                                >
-                                  Annuler
-                                </button>
-                              )}
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                {o.order_status !== 'pending' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(o.id, 'pending')}
+                                    className="px-2 py-0.5 text-[10px] font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded transition"
+                                  >
+                                    En attente
+                                  </button>
+                                )}
+                                {o.order_status !== 'processing' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(o.id, 'processing')}
+                                    className="px-2 py-0.5 text-[10px] font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded border border-amber-500/30 transition"
+                                  >
+                                    En préparation
+                                  </button>
+                                )}
+                                {o.order_status !== 'shipped' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(o.id, 'shipped')}
+                                    className="px-2 py-0.5 text-[10px] font-semibold bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded border border-blue-500/30 transition"
+                                  >
+                                    Expédiée
+                                  </button>
+                                )}
+                                {o.order_status !== 'completed' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(o.id, 'completed')}
+                                    className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded border border-emerald-500/30 transition"
+                                  >
+                                    Livrée
+                                  </button>
+                                )}
+                                {!isCancelled && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(o.id, 'cancelled')}
+                                    className="px-2 py-0.5 text-[10px] font-semibold bg-red-950/60 hover:bg-red-900 text-red-300 rounded border border-red-800 transition"
+                                  >
+                                    Annuler
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
