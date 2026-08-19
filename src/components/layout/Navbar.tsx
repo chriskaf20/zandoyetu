@@ -299,6 +299,14 @@ export function Navbar() {
               {t('allProducts')}
             </Link>
             <Link
+              href="/categories"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="block py-1.5 text-sm font-semibold text-neutral-900 hover:text-brand-black flex items-center justify-between"
+            >
+              <span>{t('allRayons')} (Annuaire)</span>
+              <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.5 rounded">7 Rayons</span>
+            </Link>
+            <Link
               href="/?gender=women"
               onClick={() => setIsMobileMenuOpen(false)}
               className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"

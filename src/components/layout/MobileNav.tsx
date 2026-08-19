@@ -31,10 +31,10 @@ function MobileNavContent() {
     },
     { 
       id: 'categories', 
-      href: '/?category=all', 
+      href: '/categories', 
       label: t('categories'), 
       icon: Grid, 
-      isActive: isCategories 
+      isActive: pathname === '/categories' 
     },
     { 
       id: 'wishlist', 
