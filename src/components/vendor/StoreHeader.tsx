@@ -65,23 +65,13 @@ export function StoreHeader({ store }: StoreHeaderProps) {
                 )}
               </div>
 
-              {/* Action Buttons: WhatsApp & Follow */}
+              {/* Action Button: Follow Store */}
               <div className="flex items-center justify-center sm:justify-end gap-2 flex-wrap">
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded transition flex items-center justify-center gap-1.5 shadow-sm bg-emerald-600 text-white hover:bg-emerald-700"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  <span>{t('whatsappStoreInquiry')}</span>
-                </a>
-
                 <button
                   type="button"
                   onClick={handleFollowClick}
                   disabled={isPending}
-                  className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded transition flex items-center justify-center gap-1.5 shadow-sm ${
+                  className={`px-5 py-2.5 text-xs font-semibold uppercase tracking-wider rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm ${
                     isFollowing
                       ? 'bg-brand-emerald text-white hover:bg-emerald-600'
                       : 'bg-brand-black text-white hover:bg-brand-charcoal'

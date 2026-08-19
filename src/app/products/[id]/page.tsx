@@ -183,7 +183,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 type="button"
                 onClick={handleAddToCart}
                 disabled={isOutOfStock}
-                className={`w-full py-3.5 px-6 font-semibold text-xs uppercase tracking-wider rounded flex items-center justify-center gap-2 transition shadow ${
+                className={`w-full py-3.5 px-6 font-semibold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 transition shadow ${
                   isAdded
                     ? 'bg-brand-emerald text-white'
                     : isOutOfStock
@@ -210,22 +210,62 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 <button
                   type="button"
                   onClick={handleBuyNow}
-                  className="w-full py-3 px-6 bg-white border border-brand-border text-brand-black hover:bg-brand-lightGray font-semibold text-xs uppercase tracking-wider rounded transition"
+                  className="w-full py-3 px-6 bg-white border border-brand-border text-brand-black hover:bg-brand-lightGray font-semibold text-xs uppercase tracking-wider rounded-lg transition"
                 >
                   {t('buyNow')}
                 </button>
               )}
 
-              {/* Direct WhatsApp Vendor Inquiry */}
+              {/* Global WhatsApp Customer Support */}
               <a
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs uppercase tracking-wider rounded transition flex items-center justify-center gap-2 shadow-sm"
+                className="w-full py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition flex items-center justify-center gap-2 shadow-sm"
               >
                 <MessageCircle className="w-4 h-4" />
                 <span>{t('whatsappInquiry')}</span>
               </a>
+            </div>
+
+            {/* Product Specifications & Details Card */}
+            <div className="mt-8 bg-brand-offWhite border border-brand-border rounded-xl p-5 space-y-3.5 shadow-2xs">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-brand-black border-b border-neutral-200 pb-2">
+                Fiche Technique & Caractéristiques
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-brand-gray block text-[11px]">Matière & Tissu :</span>
+                  <strong className="text-brand-black font-medium">{product.material_info || 'Textile haute qualité certifié'}</strong>
+                </div>
+
+                <div>
+                  <span className="text-brand-gray block text-[11px]">Disponibilité :</span>
+                  <strong className={product.stock_count > 0 ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'}>
+                    {product.stock_count > 0 ? `${product.stock_count} pièces en stock à Lubumbashi` : 'Épuisé temporairement'}
+                  </strong>
+                </div>
+
+                <div>
+                  <span className="text-brand-gray block text-[11px]">Public Cible :</span>
+                  <strong className="text-brand-black font-medium">
+                    {product.target_gender === 'women' ? 'Mode Femme' : product.target_gender === 'men' ? 'Mode Homme' : 'Unisexe / Mixte'}
+                  </strong>
+                </div>
+
+                <div>
+                  <span className="text-brand-gray block text-[11px]">Délai estimé :</span>
+                  <strong className="text-brand-black font-medium">{product.delivery_time || '24h à 48h (Lubumbashi/Kolwezi)'}</strong>
+                </div>
+
+                {product.security_specs && (
+                  <div className="sm:col-span-2 pt-1 border-t border-neutral-200/70">
+                    <span className="text-brand-gray block text-[11px]">Entretien & Conseils :</span>
+                    <p className="text-neutral-700 text-xs mt-0.5">{product.security_specs}</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Trust Guard Guarantees */}

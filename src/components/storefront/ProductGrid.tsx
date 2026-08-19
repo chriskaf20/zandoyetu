@@ -108,7 +108,6 @@ export function ProductGrid({ products, genderFilter, onGenderFilterChange }: Pr
             >
               <option value="featured">Sélection Vedette</option>
               <option value="trending">Tendances</option>
-              <option value="price-asc">Prix : Moins cher</option>
               <option value="price-desc">Prix : Plus cher</option>
             </select>
           </div>

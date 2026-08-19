@@ -42,6 +42,13 @@ export default function CheckoutPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successResult, setSuccessResult] = useState<{ orderIds: string[] } | null>(null);
 
+  // Autofill address from user profile
+  React.useEffect(() => {
+    if (user?.physical_address && !address) {
+      setAddress(user.physical_address);
+    }
+  }, [user]);
+
   const subtotal = getSubtotalUsd();
   const delivery = getDeliveryFeeUsd();
   const promo = getPromoDiscountUsd();

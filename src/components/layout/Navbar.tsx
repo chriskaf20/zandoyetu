@@ -183,7 +183,7 @@ export function Navbar() {
                     className="flex items-center gap-1.5 p-1 text-sm font-medium hover:opacity-80 transition"
                   >
                     <div className="w-7 h-7 rounded-full bg-brand-black text-white flex items-center justify-center text-xs font-bold shadow-sm">
-                      {user.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}
+                      {(user.full_name?.[0] || user.email?.[0] || 'Z').toUpperCase()}
                     </div>
                     <ChevronDown className="w-3.5 h-3.5 text-brand-gray hidden sm:block" />
                   </button>
@@ -342,13 +342,22 @@ export function Navbar() {
               {t('wishlistTitle')} ({favoriteCount})
             </Link>
 
-            {user && (user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin')) && (
+            {user && (user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin')) ? (
               <Link
                 href="/vendor/dashboard"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block py-2 text-sm font-semibold text-amber-800 bg-amber-50 px-3 rounded"
               >
-                🏪 Espace Vendeur
+                🏪 Espace Vendeur (Créateur & Shop)
+              </Link>
+            ) : (
+              <Link
+                href={user ? '/profile' : '/register?role=vendor'}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block py-2 text-sm font-semibold text-amber-800 bg-amber-50/80 hover:bg-amber-100 px-3 rounded border border-amber-200 transition flex items-center justify-between"
+              >
+                <span>🏪 Devenir Vendeur (Créateur & Shop)</span>
+                <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded">Postuler</span>
               </Link>
             )}
 
@@ -361,6 +370,17 @@ export function Navbar() {
                 🛡️ Administration
               </Link>
             )}
+
+            {/* Global WhatsApp Customer Support */}
+            <a
+              href="https://wa.me/243830634340?text=Bonjour%20Zando%20Yetu,%20j'ai%20besoin%20d'assistance"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 px-3 rounded border border-emerald-200 transition flex items-center justify-between"
+            >
+              <span>💬 Service Client WhatsApp</span>
+              <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-1.5 py-0.5 rounded">+243 830 634 340</span>
+            </a>
           </div>
 
           {/* Dedicated "Préférences & Devise" Section */}

@@ -79,6 +79,26 @@ export const LUBUMBASHI_REGIONS: CommuneData[] = [
       'Complexe Scolaire Baraka',
       'Hôpital de la Ruashi'
     ]
+  },
+  {
+    name: 'Dilala (Kolwezi)',
+    landmarks: [
+      'Rond-point Mwangeji',
+      'Centre-ville Dilala',
+      'Marché Central de Kolwezi',
+      'Hôpital Général de Référence Mwangeji',
+      'Avenue Laurent Désiré Kabila'
+    ]
+  },
+  {
+    name: 'Manika (Kolwezi)',
+    landmarks: [
+      'Marché Manika',
+      'Rond-point Kanina',
+      'Arrêt Joli Site Kolwezi',
+      'Complexe Scolaire Hewa Bora',
+      'Gare SNCC Kolwezi'
+    ]
   }
 ];
 

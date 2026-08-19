@@ -82,7 +82,7 @@ export function MegaMenu() {
   return (
     <div 
       ref={menuRef} 
-      className="relative bg-white border-b border-brand-border"
+      className="hidden md:block relative bg-white border-b border-brand-border"
       onMouseLeave={handleMouseLeave}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

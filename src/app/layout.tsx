@@ -50,11 +50,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className={inter.variable}>
-      <body className="min-h-screen flex flex-col justify-between">
+    <html lang="fr" className={`${inter.variable} overflow-x-hidden w-full max-w-[100vw]`}>
+      <body className="min-h-screen flex flex-col justify-between overflow-x-hidden w-full max-w-[100vw] bg-white text-brand-black antialiased">
         <Providers>
           <Navbar />
-          <main className="flex-1 pb-safe md:pb-0">{children}</main>
+          <main className="flex-1 pb-safe md:pb-0 overflow-x-hidden w-full max-w-[100vw]">{children}</main>
           <Footer />
           <MobileNav />
           <CartDrawer />

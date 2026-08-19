@@ -2,11 +2,13 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { ShieldCheck, Truck, RotateCcw, MapPin, Phone, Mail } from 'lucide-react';
+import { ShieldCheck, Truck, RotateCcw, MapPin, Phone, MessageCircle } from 'lucide-react';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
+import { useAuthStore } from '@/lib/stores/useAuthStore';
 
 export function Footer() {
   const { t } = useLanguageStore();
+  const user = useAuthStore((s) => s.user);
 
   return (
     <footer className="bg-brand-black text-white mt-16 border-t border-neutral-800">
@@ -46,15 +48,20 @@ export function Footer() {
           <p className="text-xs text-brand-gray leading-relaxed">
             {t('footerDescription')}
           </p>
-          <div className="pt-2 text-xs text-brand-gray space-y-1">
+          <div className="pt-2 text-xs text-brand-gray space-y-1.5">
             <div className="flex items-center gap-2">
-              <MapPin className="w-3.5 h-3.5 text-white" />
-              <span>Lubumbashi, RDC</span>
+              <MapPin className="w-3.5 h-3.5 text-white flex-shrink-0" />
+              <span>Lubumbashi & Kolwezi, RDC</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Phone className="w-3.5 h-3.5 text-white" />
-              <span>+243 970 000 000</span>
-            </div>
+            <a 
+              href="https://wa.me/243830634340?text=Bonjour%20Zando%20Yetu,%20j'ai%20besoin%20d'assistance" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="flex items-center gap-2 hover:text-emerald-400 transition"
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <span>+243 830 634 340 (WhatsApp)</span>
+            </a>
           </div>
         </div>
 
@@ -74,8 +81,17 @@ export function Footer() {
           <ul className="text-xs text-brand-gray space-y-2">
             <li><Link href="/orders" className="hover:text-white transition">{t('footerOrderTracking')}</Link></li>
             <li><Link href="/cart" className="hover:text-white transition">{t('footerMyCart')}</Link></li>
-            <li><Link href="/profile" className="hover:text-white transition">{t('footerMyAccount')}</Link></li>
-            <li><Link href="/login" className="hover:text-white transition">{t('footerLoginRegister')}</Link></li>
+            <li><Link href="/categories" className="hover:text-white transition">Annuaire des Rayons</Link></li>
+            {user ? (
+              <li><Link href="/profile" className="hover:text-white transition">{t('footerMyAccount')}</Link></li>
+            ) : (
+              <li><Link href="/login" className="hover:text-white transition">{t('footerLoginRegister')}</Link></li>
+            )}
+            <li>
+              <Link href={user ? '/profile' : '/register?role=vendor'} className="text-amber-400 hover:underline">
+                Devenir Vendeur (Créateur & Shop) &rarr;
+              </Link>
+            </li>
           </ul>
         </div>
 

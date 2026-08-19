@@ -404,4 +404,150 @@ export class AdminService {
     const { error } = await supabase.from('hero_banners').delete().eq('id', id);
     return !error;
   }
+
+  /**
+   * Get all orders platform-wide with customer and product information
+   */
+  static async getAllOrders(): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          users:customer_id(id, full_name, email, phone),
+          products:product_id(id, title, price_usd, images_urls),
+          stores:vendor_id(id, store_name, city)
+        `)
+        .order('timestamp', { ascending: false });
+
+      if (error) {
+        console.error('[AdminService] Error fetching all orders:', error);
+        return [];
+      }
+      return data || [];
+    } catch (err) {
+      console.error('[AdminService] Error fetching all orders:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Update order status (pending, processing, shipped, completed, cancelled)
+   */
+  static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
+    try {
+      const { error } = await (supabase
+        .from('orders')
+        .update({
+          order_status: status,
+          local_updated_at: new Date().toISOString(),
+        })
+        .eq('id', orderId) as any);
+
+      if (error) {
+        console.error('[AdminService] Error updating order status:', error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('[AdminService] Error updating order status:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Set product flash sale discount
+   */
+  static async setProductFlashSale(product: any, discountPercent: number): Promise<boolean> {
+    try {
+      const originalPrice = product.compare_at_price && product.compare_at_price > product.price_usd
+        ? product.compare_at_price
+        : product.price_usd;
+
+      const discountedPrice = Math.round(originalPrice * (1 - discountPercent / 100) * 100) / 100;
+      const discountedCdf = Math.round(discountedPrice * 2850);
+
+      const { error } = await (supabase
+        .from('products')
+        .update({
+          price_usd: discountedPrice,
+          price_cdf: discountedCdf,
+          compare_at_price: originalPrice,
+          is_trending: true,
+          local_updated_at: new Date().toISOString(),
+        })
+        .eq('id', product.id) as any);
+
+      if (error) {
+        console.error('[AdminService] Error setting flash sale on product:', error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('[AdminService] Error setting flash sale on product:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Remove product flash sale discount (restore original price)
+   */
+  static async removeProductFlashSale(product: any): Promise<boolean> {
+    try {
+      const originalPrice = product.compare_at_price || product.price_usd;
+      const originalCdf = Math.round(originalPrice * 2850);
+
+      const { error } = await (supabase
+        .from('products')
+        .update({
+          price_usd: originalPrice,
+          price_cdf: originalCdf,
+          compare_at_price: null,
+          is_trending: false,
+          local_updated_at: new Date().toISOString(),
+        })
+        .eq('id', product.id) as any);
+
+      if (error) {
+        console.error('[AdminService] Error removing flash sale from product:', error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('[AdminService] Error removing flash sale from product:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Approve a vendor application (promote role to 'vendor' and verify store)
+   */
+  static async approveVendor(storeId: string, vendorId: string): Promise<boolean> {
+    try {
+      await Promise.all([
+        (supabase.from('stores').update({ is_verified: true, is_archived: false, updated_at: new Date().toISOString() }).eq('id', storeId) as any),
+        (supabase.from('users').update({ role: 'vendor', local_updated_at: new Date().toISOString() }).eq('id', vendorId) as any),
+      ]);
+      return true;
+    } catch (err) {
+      console.error('[AdminService] Error approving vendor:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Reject a vendor application
+   */
+  static async rejectVendor(storeId: string): Promise<boolean> {
+    try {
+      const { error } = await (supabase
+        .from('stores')
+        .update({ is_archived: true, is_verified: false, updated_at: new Date().toISOString() })
+        .eq('id', storeId) as any);
+      return !error;
+    } catch (err) {
+      console.error('[AdminService] Error rejecting vendor:', err);
+      return false;
+    }
+  }
 }

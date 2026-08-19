@@ -142,6 +142,42 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Vendor Status & Onboarding Callout */}
+      {user.role === 'vendor' || user.role === 'admin' ? (
+        <div className="mb-8 p-5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+          <div>
+            <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">Compte Vendeur Officiel (Créateur & Shop)</span>
+            <p className="text-xs text-amber-800 mt-0.5">Gérez vos articles, vos commandes et l'enseigne de votre boutique.</p>
+          </div>
+          <Link
+            href="/vendor/dashboard"
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold uppercase tracking-wider rounded transition shadow-sm"
+          >
+            Accéder au Dashboard
+          </Link>
+        </div>
+      ) : (
+        <div className="mb-8 p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <span className="inline-block px-2 py-0.5 bg-amber-500 text-black text-[9px] font-bold uppercase rounded mb-1">
+              Opportunité Créateurs & Boutiques
+            </span>
+            <h3 className="font-serif text-sm font-bold text-neutral-900">Devenir Vendeur sur Zando Yetu</h3>
+            <p className="text-xs text-neutral-600 mt-0.5 max-w-md">
+              Vendez vos vêtements, créations locales et accessoires aux milliers de clients de Lubumbashi et Kolwezi.
+            </p>
+          </div>
+          <a
+            href="https://wa.me/243830634340?text=Bonjour%20Zando%20Yetu,%20je%20souhaite%20devenir%20vendeur%20sur%20la%20plateforme"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2.5 bg-brand-black hover:bg-neutral-800 text-white text-xs font-bold uppercase tracking-wider rounded whitespace-nowrap transition shadow-sm"
+          >
+            Postuler comme Vendeur &rarr;
+          </a>
+        </div>
+      )}
+
       {/* Edit Profile Form */}
       <form onSubmit={handleSave} className="bg-white border border-brand-border rounded p-6 space-y-4 shadow-sm">
         {saveSuccess && (

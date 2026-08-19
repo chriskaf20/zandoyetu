@@ -89,7 +89,7 @@ export function CategoryStoryRail({
   };
 
   return (
-    <section className="relative my-6 sm:my-8 py-2">
+    <section className="hidden md:block relative my-6 sm:my-8 py-2">
       <div className="flex items-center justify-between mb-3 px-1">
         <h2 className="font-serif text-xs sm:text-sm font-bold text-brand-black uppercase tracking-wider flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-amber-500" />
