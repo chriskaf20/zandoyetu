@@ -98,13 +98,18 @@ export function FlashSaleRail({ sales }: FlashSaleRailProps) {
                   {product.title}
                 </h3>
 
-                <div className="flex items-baseline gap-2 mt-1">
-                  <span className="text-sm font-bold text-amber-400">
-                    {formatPrice(sale.flash_price_usd)}
-                  </span>
-                  <span className="text-[11px] text-neutral-500 line-through">
-                    {formatPrice(product.price_usd)}
-                  </span>
+                <div className="mt-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-bold text-amber-400">
+                      {formatPrice(sale.flash_price_usd)}
+                    </span>
+                    <span className="text-[11px] text-neutral-400 line-through">
+                      {formatPrice(product.price_usd)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-neutral-400 font-mono mt-0.5">
+                    ≈ {Math.round(sale.flash_price_usd * 2850).toLocaleString()} FC
+                  </p>
                 </div>
 
                 {/* Stock Progress Bar */}

@@ -47,8 +47,11 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 bg-white shadow-sm">
-      {/* Top Announcement Bar */}
-      <div className="bg-brand-black text-white text-xs py-2 px-4 text-center font-medium tracking-wide flex items-center justify-between">
+      {/* Top Announcement Bar with iOS Safe-Area Notch Padding */}
+      <div 
+        style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 6px)' }}
+        className="bg-brand-black text-white text-xs pb-2 px-4 text-center font-medium tracking-wide flex items-center justify-between"
+      >
         <div className="hidden sm:flex items-center gap-2 text-[11px] text-neutral-300">
           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
           <span>Plateforme Officielle Mode & Marketplace du Katanga</span>

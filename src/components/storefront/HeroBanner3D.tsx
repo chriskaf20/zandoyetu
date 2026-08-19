@@ -448,9 +448,10 @@ export function HeroBanner3D({
 
       {/* Top Floating Badge: Streetwear & Haute Couture */}
       <div className="absolute top-4 left-4 sm:left-6 z-20 pointer-events-auto flex items-center gap-2">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-black/70 backdrop-blur-md border border-amber-400/40 text-amber-300 rounded-full text-[11px] font-bold uppercase tracking-wider shadow-lg">
-          <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-          <span>STREETWEAR & HAUTE COUTURE • LUBUMBASHI</span>
+        <div className="inline-flex items-center px-3 py-1 bg-black/70 backdrop-blur-md border border-amber-400/40 rounded-full shadow-lg">
+          <span className="text-[10px] tracking-widest font-bold uppercase text-amber-300">
+            STREETWEAR & HAUTE COUTURE • LUBUMBASHI
+          </span>
         </div>
       </div>
 

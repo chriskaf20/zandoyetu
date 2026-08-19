@@ -20,6 +20,10 @@
 }
 
 /* iOS & Mobile Safe Area Utilities */
+.pt-safe-top {
+  padding-top: max(env(safe-area-inset-top, 0px), 6px);
+}
+
 .safe-area-inset-bottom {
   padding-bottom: calc(0.25rem + env(safe-area-inset-bottom, 0px));
 }
@@ -27,3 +31,4 @@
 .pb-safe {
   padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
+

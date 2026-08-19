@@ -89,13 +89,17 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
                 const discount = p.compare_at_price
                   ? Math.round(((p.compare_at_price - p.price_usd) / p.compare_at_price) * 100)
                   : 35;
+                const originalPrice = p.compare_at_price && p.compare_at_price > p.price_usd
+                  ? p.compare_at_price
+                  : Math.round((p.price_usd / 0.65) * 100) / 100;
+                const cdfValue = Math.round(p.price_usd * 2850).toLocaleString();
 
                 return (
                   <div
                     key={p.id}
-                    className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded flex items-center gap-3 transition"
+                    className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg flex items-center gap-3 transition"
                   >
-                    <div className="relative w-14 h-16 rounded overflow-hidden flex-shrink-0 bg-neutral-800">
+                    <div className="relative w-14 h-16 rounded overflow-hidden flex-shrink-0 bg-neutral-800 border border-neutral-700">
                       <Image src={img} alt={p.title} fill className="object-cover" sizes="56px" />
                       <span className="absolute top-0 left-0 bg-red-600 text-white text-[8px] font-bold px-1 rounded-br">
                         -{discount}%
@@ -108,20 +112,25 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
                           {p.title}
                         </h4>
                       </Link>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-sm font-bold text-amber-400">{formatPrice(p.price_usd)}</span>
-                        {p.compare_at_price && (
-                          <span className="text-[10px] text-neutral-400 line-through">
-                            {formatPrice(p.compare_at_price)}
+                      <div className="mt-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-bold text-amber-400">
+                            {formatPrice(p.price_usd)}
                           </span>
-                        )}
+                          <span className="text-xs text-neutral-400 line-through">
+                            {formatPrice(originalPrice)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-neutral-400 font-mono mt-0.5">
+                          ≈ {cdfValue} FC
+                        </p>
                       </div>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => addItem(p)}
-                      className="p-2 bg-red-600 hover:bg-red-700 text-white rounded transition shadow flex-shrink-0"
+                      className="p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition shadow flex-shrink-0"
                       aria-label="Add deal to cart"
                     >
                       <ShoppingBag className="w-3.5 h-3.5" />
