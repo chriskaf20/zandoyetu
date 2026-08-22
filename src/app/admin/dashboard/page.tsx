@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { 
   BarChart3, 
   Store, 
@@ -45,7 +46,8 @@ import {
   ShieldCheck,
   ArrowRight,
   TrendingUp,
-  HelpCircle
+  HelpCircle,
+  ExternalLink
 } from 'lucide-react';
 import { 
   AdminService, 
@@ -128,8 +130,6 @@ export default function AdminDashboardPage() {
   const [productModerationTab, setProductModerationTab] = useState<'active' | 'archived'>('active');
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
   const [productSearchQuery, setProductSearchQuery] = useState('');
-  const [flashProductModal, setFlashProductModal] = useState<any | null>(null);
-  const [flashDiscountPercent, setFlashDiscountPercent] = useState<number>(20);
   const [processingProductId, setProcessingProductId] = useState<string | null>(null);
 
   // Accounting State
@@ -145,8 +145,17 @@ export default function AdminDashboardPage() {
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Coupons State
+  const [allCoupons, setAllCoupons] = useState<PendingCoupon[]>([]);
   const [pendingCoupons, setPendingCoupons] = useState<PendingCoupon[]>([]);
+  const [couponSubTab, setCouponSubTab] = useState<'all' | 'pending'>('all');
   const [processingCouponId, setProcessingCouponId] = useState<string | null>(null);
+  const [showCreateCouponModal, setShowCreateCouponModal] = useState(false);
+  const [creatingCoupon, setCreatingCoupon] = useState(false);
+  const [couponForm, setCouponForm] = useState({
+    code: '',
+    discount_percent: 15,
+    store_id: 'global',
+  });
 
   // Banners State
   const [banners, setBanners] = useState<HeroBanner[]>([]);
@@ -177,7 +186,8 @@ export default function AdminDashboardPage() {
         archProds,
         pmts,
         threads,
-        coups,
+        coupsPending,
+        coupsAll,
         banns
       ] = await Promise.all([
         AdminService.getPlatformMetrics(),
@@ -187,11 +197,12 @@ export default function AdminDashboardPage() {
         AdminService.getAllOrders(),
         AdminService.getAllUsers(),
         AdminService.getAllStores(),
-        AdminService.getProductsByStore('all', true),
+        AdminService.getAllProductsAdmin('all'),
         AdminService.getArchivedProducts(),
         AdminService.getAwaitingPayments(),
         AdminService.getSupportThreads(),
         AdminService.getPendingCoupons(),
+        AdminService.getAllCouponsAdmin(),
         AdminService.getHeroBanners(),
       ]);
 
@@ -214,7 +225,8 @@ export default function AdminDashboardPage() {
       setArchivedProducts(archProds);
       setAwaitingPayments(pmts);
       setSupportThreads(threads);
-      setPendingCoupons(coups);
+      setPendingCoupons(coupsPending);
+      setAllCoupons(coupsAll);
       setBanners(banns);
     } catch (err) {
       console.error('[AdminDashboard] Error loading platform data:', err);
@@ -262,6 +274,17 @@ export default function AdminDashboardPage() {
       setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     });
   }, [activeThreadId]);
+
+  // Reload products when store filter changes in moderation tab
+  const handleVendorFilterChange = async (vendorId: string) => {
+    setSelectedVendorFilter(vendorId);
+    try {
+      const prods = await AdminService.getAllProductsAdmin(vendorId);
+      setProducts(prods);
+    } catch (err) {
+      console.error('Error filtering products by store:', err);
+    }
+  };
 
   // -------------------------------------------------------------
   // HANDLERS
@@ -491,13 +514,14 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Coupons Approval
+  // Coupons Approval & Creation
   const handleApproveCoupon = async (couponId: string) => {
     setProcessingCouponId(couponId);
     try {
       const ok = await AdminService.approveCoupon(couponId);
       if (ok) {
         setPendingCoupons((prev) => prev.filter((c) => c.id !== couponId));
+        setAllCoupons((prev) => prev.map((c) => c.id === couponId ? { ...c, status: 'active' } : c));
         setMessage({ type: 'success', text: 'Code promo approuvé et activé sur la plateforme !' });
       }
     } finally {
@@ -511,10 +535,57 @@ export default function AdminDashboardPage() {
       const ok = await AdminService.rejectCoupon(couponId);
       if (ok) {
         setPendingCoupons((prev) => prev.filter((c) => c.id !== couponId));
+        setAllCoupons((prev) => prev.map((c) => c.id === couponId ? { ...c, status: 'rejected' } : c));
         setMessage({ type: 'success', text: 'Code promo rejeté.' });
       }
     } finally {
       setProcessingCouponId(null);
+    }
+  };
+
+  const handleDeleteCoupon = async (couponId: string) => {
+    if (!confirm('Supprimer définitivement ce code promotionnel ?')) return;
+    setProcessingCouponId(couponId);
+    try {
+      const ok = await AdminService.deleteCoupon(couponId);
+      if (ok) {
+        setAllCoupons((prev) => prev.filter((c) => c.id !== couponId));
+        setPendingCoupons((prev) => prev.filter((c) => c.id !== couponId));
+        setMessage({ type: 'success', text: 'Code promo supprimé.' });
+      }
+    } finally {
+      setProcessingCouponId(null);
+    }
+  };
+
+  const handleCreateCouponSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!couponForm.code.trim()) return;
+    setCreatingCoupon(true);
+    try {
+      const result = await AdminService.createAdminCoupon({
+        code: couponForm.code,
+        discount_percent: couponForm.discount_percent,
+        store_id: couponForm.store_id === 'global' ? null : couponForm.store_id,
+        status: 'active',
+        created_by: sessionUser?.id,
+      });
+
+      if (result.success) {
+        setMessage({ type: 'success', text: `Code promo "${couponForm.code.toUpperCase()}" activé avec succès (-${couponForm.discount_percent}%) !` });
+        setShowCreateCouponModal(false);
+        setCouponForm({ code: '', discount_percent: 15, store_id: 'global' });
+        const [cAll, cPend] = await Promise.all([
+          AdminService.getAllCouponsAdmin(),
+          AdminService.getPendingCoupons(),
+        ]);
+        setAllCoupons(cAll);
+        setPendingCoupons(cPend);
+      } else {
+        setMessage({ type: 'error', text: result.error || 'Erreur lors de la création du code promo.' });
+      }
+    } finally {
+      setCreatingCoupon(false);
     }
   };
 
@@ -597,6 +668,8 @@ export default function AdminDashboardPage() {
     const matchesQuery = !q || p.title.toLowerCase().includes(q) || p.category?.toLowerCase().includes(q);
     return matchesVendor && matchesQuery;
   });
+
+  const filteredCoupons = (couponSubTab === 'all' ? allCoupons : pendingCoupons);
 
   // -------------------------------------------------------------
   // RENDER
@@ -1332,13 +1405,13 @@ export default function AdminDashboardPage() {
             {activeTab === 'moderation' && (
               <div className="space-y-4">
                 {/* Controls Bar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-900 border border-neutral-800 p-4 rounded-xl">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setProductModerationTab('active')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
-                        productModerationTab === 'active' ? 'bg-amber-400 text-black' : 'bg-neutral-900 text-neutral-400 hover:text-white'
+                      className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition ${
+                        productModerationTab === 'active' ? 'bg-amber-400 text-black shadow' : 'bg-neutral-950 text-neutral-400 hover:text-white border border-neutral-800'
                       }`}
                     >
                       Catalogue Actif ({products.length})
@@ -1346,107 +1419,140 @@ export default function AdminDashboardPage() {
                     <button
                       type="button"
                       onClick={() => setProductModerationTab('archived')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition ${
-                        productModerationTab === 'archived' ? 'bg-amber-400 text-black' : 'bg-neutral-900 text-neutral-400 hover:text-white'
+                      className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition ${
+                        productModerationTab === 'archived' ? 'bg-amber-400 text-black shadow' : 'bg-neutral-950 text-neutral-400 hover:text-white border border-neutral-800'
                       }`}
                     >
                       Archivés ({archivedProducts.length})
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
                     <select
                       value={selectedVendorFilter}
-                      onChange={(e) => setSelectedVendorFilter(e.target.value)}
-                      className="px-3 py-1.5 text-xs bg-neutral-900 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-amber-400"
+                      onChange={(e) => handleVendorFilterChange(e.target.value)}
+                      className="px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-amber-400"
                     >
-                      <option value="all">Toutes les boutiques</option>
+                      <option value="all">Toutes les boutiques ({stores.length})</option>
                       {stores.map((s) => (
-                        <option key={s.id} value={s.vendor_id}>{s.store_name}</option>
+                        <option key={s.id} value={s.vendor_id}>{s.store_name} ({s.city || 'L’shi'})</option>
                       ))}
                     </select>
 
-                    <div className="relative">
+                    <div className="relative flex-1 sm:w-64">
                       <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={productSearchQuery}
                         onChange={(e) => setProductSearchQuery(e.target.value)}
-                        placeholder="Rechercher article..."
-                        className="pl-8 pr-3 py-1.5 text-xs bg-neutral-900 border border-neutral-800 rounded-lg text-white placeholder:text-neutral-500 focus:outline-none focus:border-amber-400"
+                        placeholder="Rechercher par titre, catégorie..."
+                        className="w-full pl-8 pr-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white placeholder:text-neutral-500 focus:outline-none focus:border-amber-400"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Products Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredProducts.map((p) => {
-                    const img = p.images_urls?.[0] || 'https://placehold.co/200x250/png?text=Article';
-                    const isSuspended = p.status === 'suspended';
+                {filteredProducts.length === 0 ? (
+                  <div className="py-16 text-center text-neutral-400 bg-neutral-900/50 rounded-2xl border border-neutral-800">
+                    <Package className="w-8 h-8 mx-auto mb-2 opacity-50 text-amber-400" />
+                    <p className="text-sm font-semibold">Aucun article trouvé dans cette vue.</p>
+                    <p className="text-xs text-neutral-500 mt-1">Sélectionnez une autre boutique ou ajustez vos termes de recherche.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredProducts.map((p) => {
+                      const img = p.images_urls?.[0] || 'https://placehold.co/200x250/png?text=Article';
+                      const isSuspended = p.status === 'suspended';
+                      const storeName = p.stores?.store_name || stores.find((s) => s.vendor_id === p.vendor_id)?.store_name || 'Boutique';
 
-                    return (
-                      <div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 flex flex-col justify-between">
-                        <div>
-                          <div className="flex gap-3">
-                            <div className="relative w-16 h-20 bg-black rounded-lg overflow-hidden flex-shrink-0 border border-neutral-800">
-                              <Image src={img} alt={p.title} fill className="object-cover" sizes="64px" />
-                              {p.is_trending && (
-                                <span className="absolute top-1 left-1 bg-amber-500 text-black text-[8px] font-bold px-1 rounded">
-                                  HOT 🔥
-                                </span>
-                              )}
-                            </div>
+                      return (
+                        <div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 flex flex-col justify-between hover:border-neutral-700 transition">
+                          <div>
+                            <div className="flex gap-3">
+                              <div className="relative w-20 h-24 bg-black rounded-lg overflow-hidden flex-shrink-0 border border-neutral-800">
+                                <Image src={img} alt={p.title} fill className="object-cover" sizes="80px" />
+                                {p.is_trending && (
+                                  <span className="absolute top-1 left-1 bg-amber-500 text-black text-[8px] font-bold px-1 rounded shadow">
+                                    HOT 🔥
+                                  </span>
+                                )}
+                              </div>
 
-                            <div className="min-w-0 flex-1">
-                              <h4 className="font-bold text-white text-xs truncate">{p.title}</h4>
-                              <p className="text-[10px] text-neutral-400">{p.category || 'Mode'} • {p.stock_count} en stock</p>
-                              <div className="mt-1">
-                                <span className="text-sm font-bold text-amber-400">${p.price_usd}</span>
-                                <span className="text-[10px] text-neutral-500 font-mono ml-1">({p.price_cdf?.toLocaleString()} FC)</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-1">
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-neutral-800 text-amber-300 border border-neutral-700 truncate max-w-[120px]">
+                                    {storeName}
+                                  </span>
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
+                                    isSuspended ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                  }`}>
+                                    {isSuspended ? 'SUSPENDU' : 'ACTIF'}
+                                  </span>
+                                </div>
+
+                                <h4 className="font-bold text-white text-xs truncate mt-1.5">{p.title}</h4>
+                                <p className="text-[10px] text-neutral-400">{p.category || 'Mode'} • <strong className="text-white">{p.stock_count}</strong> en stock</p>
+                                
+                                <div className="mt-1 flex items-baseline gap-1.5">
+                                  <span className="text-sm font-bold text-amber-400">${p.price_usd}</span>
+                                  <span className="text-[10px] text-neutral-400 font-mono">({p.price_cdf?.toLocaleString()} FC)</span>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="pt-2 border-t border-neutral-800 flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTrending(p.id, p.is_trending)}
-                            className={`px-2 py-1 text-[10px] font-bold rounded border ${
-                              p.is_trending ? 'bg-amber-400/20 text-amber-300 border-amber-400/40' : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-                            }`}
-                          >
-                            {p.is_trending ? '★ En Tendance' : '☆ Tendance'}
-                          </button>
+                          <div className="pt-2.5 border-t border-neutral-800 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Link
+                                href={`/products/${p.id}`}
+                                target="_blank"
+                                className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-bold rounded transition flex items-center gap-1"
+                                title="Voir la page article"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                <span>Voir</span>
+                              </Link>
 
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleProductSuspension(p.id, p.status)}
-                              disabled={processingProductId === p.id}
-                              className={`px-2 py-1 text-[10px] font-bold rounded ${
-                                isSuspended ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-neutral-800 text-neutral-300'
-                              }`}
-                            >
-                              {isSuspended ? 'Réactiver' : 'Suspendre'}
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTrending(p.id, p.is_trending)}
+                                className={`px-2 py-1 text-[10px] font-bold rounded border transition ${
+                                  p.is_trending ? 'bg-amber-400/20 text-amber-300 border-amber-400/40' : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
+                                }`}
+                              >
+                                {p.is_trending ? '★ En Tendance' : '☆ Tendance'}
+                              </button>
+                            </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteProduct(p.id)}
-                              disabled={processingProductId === p.id}
-                              className="p-1 text-red-400 hover:bg-red-950/40 rounded transition"
-                              title="Supprimer / Archiver"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleProductSuspension(p.id, p.status)}
+                                disabled={processingProductId === p.id}
+                                className={`px-2 py-1 text-[10px] font-bold rounded transition ${
+                                  isSuspended ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                                }`}
+                              >
+                                {isSuspended ? 'Réactiver' : 'Suspendre'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProduct(p.id)}
+                                disabled={processingProductId === p.id}
+                                className="p-1 text-red-400 hover:bg-red-950/40 rounded transition"
+                                title="Supprimer / Archiver"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1640,55 +1746,207 @@ export default function AdminDashboardPage() {
             {/* ========================================================================= */}
             {activeTab === 'coupons' && (
               <div className="space-y-4">
-                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex items-center justify-between">
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-white">File d'Approbation des Codes Promo</h2>
-                    <p className="text-xs text-neutral-400">Validez les codes promotionnels créés par les vendeurs partenaires.</p>
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-white">Gestion & Validation des Codes Promo</h2>
+                    <p className="text-xs text-neutral-400">Créez des remises administratives et approuvez les codes soumis par les vendeurs.</p>
                   </div>
-                  <span className="px-2.5 py-1 bg-amber-400 text-black text-xs font-bold rounded-lg">
-                    {pendingCoupons.length} en attente
-                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateCouponModal(true)}
+                      className="px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-black text-xs font-bold uppercase rounded-lg transition flex items-center gap-1.5 shadow"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Ajouter un Code Promo</span>
+                    </button>
+                  </div>
                 </div>
 
-                {pendingCoupons.length === 0 ? (
+                {/* Sub-Tabs: Tous vs En Attente */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCouponSubTab('all')}
+                    className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition ${
+                      couponSubTab === 'all' ? 'bg-amber-400 text-black' : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                    }`}
+                  >
+                    Tous les Codes ({allCoupons.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCouponSubTab('pending')}
+                    className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                      couponSubTab === 'pending' ? 'bg-amber-400 text-black' : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                    }`}
+                  >
+                    <span>En Attente d'Approbation</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-neutral-800 text-amber-300">
+                      {pendingCoupons.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Coupons List */}
+                {filteredCoupons.length === 0 ? (
                   <div className="py-16 text-center text-neutral-400 bg-neutral-900/50 rounded-2xl border border-neutral-800">
-                    <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400/60" />
-                    <p className="text-sm font-semibold">Aucun code promo en attente.</p>
+                    <Tag className="w-8 h-8 mx-auto mb-2 text-amber-400 opacity-50" />
+                    <p className="text-sm font-semibold">Aucun code promo trouvé dans cette catégorie.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {pendingCoupons.map((c) => (
-                      <div key={c.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 shadow-sm">
-                        <div className="flex items-start justify-between">
+                    {filteredCoupons.map((c) => {
+                      const isPending = c.status === 'pending';
+                      const isActive = c.status === 'active';
+                      const storeName = c.stores?.store_name || c.stores?.name || stores.find((s) => s.id === c.store_id)?.store_name || 'Plateforme Globale';
+
+                      return (
+                        <div key={c.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 shadow-sm flex flex-col justify-between">
                           <div>
-                            <span className="font-mono text-base font-bold text-amber-400 block">{c.code}</span>
-                            <span className="text-xs text-emerald-400 font-semibold">-{c.discount_percent}% de remise</span>
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="font-mono text-base font-bold text-amber-400 tracking-wider block">{c.code}</span>
+                                <span className="text-xs text-emerald-400 font-bold">-{c.discount_percent}% de remise</span>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                                isActive ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
+                                isPending ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-red-950 text-red-300 border border-red-800'
+                              }`}>
+                                {c.status}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-neutral-300 mt-2">Boutique : <strong className="text-white">{storeName}</strong></p>
+                            <p className="text-[10px] text-neutral-500 mt-0.5">Créé le : {new Date(c.created_at).toLocaleDateString()}</p>
                           </div>
-                          <span className="text-[10px] text-neutral-500">{new Date(c.created_at).toLocaleDateString()}</span>
-                        </div>
 
-                        <p className="text-xs text-neutral-300">Boutique : <strong>{c.stores?.store_name || c.stores?.name || 'Partenaire'}</strong></p>
-
-                        <div className="pt-2 border-t border-neutral-800 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleApproveCoupon(c.id)}
-                            disabled={processingCouponId === c.id}
-                            className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-black text-xs font-bold uppercase rounded-lg transition"
-                          >
-                            Approuver
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRejectCoupon(c.id)}
-                            disabled={processingCouponId === c.id}
-                            className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold uppercase rounded-lg transition"
-                          >
-                            Refuser
-                          </button>
+                          <div className="pt-2 border-t border-neutral-800 flex items-center justify-between gap-2">
+                            {isPending ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveCoupon(c.id)}
+                                  disabled={processingCouponId === c.id}
+                                  className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-black text-xs font-bold uppercase rounded-lg transition"
+                                >
+                                  Approuver
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectCoupon(c.id)}
+                                  disabled={processingCouponId === c.id}
+                                  className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold uppercase rounded-lg transition"
+                                >
+                                  Refuser
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCoupon(c.id)}
+                                disabled={processingCouponId === c.id}
+                                className="w-full py-1.5 text-xs text-red-400 hover:bg-red-950/40 rounded transition border border-red-900/40 flex items-center justify-center gap-1.5"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Supprimer le Code</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Modal: Create Admin Coupon */}
+                {showCreateCouponModal && (
+                  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+                      <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Tag className="w-4 h-4 text-amber-400" />
+                          <h3 className="text-sm font-bold text-white uppercase tracking-wider">Nouveau Code Promo Plateforme</h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateCouponModal(false)}
+                          className="text-neutral-400 hover:text-white"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                    ))}
+
+                      <form onSubmit={handleCreateCouponSubmit} className="space-y-4">
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                            Code Promo (ex. LUBUM2026)
+                          </label>
+                          <input
+                            type="text"
+                            value={couponForm.code}
+                            onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '') })}
+                            placeholder="CODEPROMO"
+                            className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-amber-400 font-mono font-bold tracking-widest focus:outline-none focus:border-amber-400"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] uppercase font-bold text-neutral-400">
+                              Pourcentage de Réduction
+                            </label>
+                            <span className="text-xs font-bold text-emerald-400">
+                              {couponForm.discount_percent}%
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={1}
+                            max={90}
+                            value={couponForm.discount_percent}
+                            onChange={(e) => setCouponForm({ ...couponForm, discount_percent: parseInt(e.target.value) || 10 })}
+                            className="w-full accent-amber-400"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                            Boutique Éligible
+                          </label>
+                          <select
+                            value={couponForm.store_id}
+                            onChange={(e) => setCouponForm({ ...couponForm, store_id: e.target.value })}
+                            className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-amber-400"
+                          >
+                            <option value="global">Toutes les boutiques / Plateforme Globale</option>
+                            {stores.map((s) => (
+                              <option key={s.id} value={s.id}>{s.store_name} ({s.city || 'Lubumbashi'})</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="pt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCreateCouponModal(false)}
+                            className="flex-1 py-2 text-xs font-bold text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition"
+                          >
+                            Annuler
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={creatingCoupon || !couponForm.code.trim()}
+                            className="flex-1 py-2 bg-amber-400 hover:bg-amber-500 text-black text-xs font-bold uppercase tracking-wider rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            {creatingCoupon ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                            <span>Créer & Activer</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 )}
               </div>

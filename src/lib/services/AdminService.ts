@@ -91,6 +91,7 @@ export interface PendingCoupon {
   created_by: string | null;
   created_at: string;
   stores?: {
+    id?: string;
     store_name?: string;
     name?: string;
   } | null;
@@ -583,6 +584,13 @@ export class AdminService {
   }
 
   /**
+   * Get all products for admin moderation across all boutiques (active and suspended)
+   */
+  static async getAllProductsAdmin(vendorId?: string): Promise<Product[]> {
+    return this.getProductsByStore(vendorId, true);
+  }
+
+  /**
    * Get products by store vendor_id (or all products if not filtered)
    */
   static async getProductsByStore(vendorId?: string, includeSuspended: boolean = true): Promise<Product[]> {
@@ -861,13 +869,34 @@ export class AdminService {
   }
 
   /**
+   * Get all coupons platform-wide (active, pending, rejected)
+   */
+  static async getAllCouponsAdmin(): Promise<PendingCoupon[]> {
+    try {
+      const { data, error } = await supabase
+        .from('coupons')
+        .select('*, stores:store_id(id, store_name, name)')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return (data || []).map((c: any) => ({
+        ...c,
+        stores: Array.isArray(c.stores) ? c.stores[0] || null : c.stores || null,
+      })) as PendingCoupon[];
+    } catch (err) {
+      console.error('[AdminService] Error fetching all coupons:', err);
+      return [];
+    }
+  }
+
+  /**
    * Get pending coupons awaiting admin approval
    */
   static async getPendingCoupons(): Promise<PendingCoupon[]> {
     try {
       const { data, error } = await supabase
         .from('coupons')
-        .select('*, stores:store_id(store_name)')
+        .select('*, stores:store_id(id, store_name, name)')
         .eq('status', 'pending')
         .order('created_at', { ascending: true });
 
@@ -879,6 +908,71 @@ export class AdminService {
     } catch (err) {
       console.error('[AdminService] Error fetching pending coupons:', err);
       return [];
+    }
+  }
+
+  /**
+   * Create an admin promo coupon
+   */
+  static async createAdminCoupon(couponData: {
+    code: string;
+    discount_percent: number;
+    store_id?: string | null;
+    status?: string;
+    created_by?: string | null;
+  }): Promise<{ success: boolean; coupon?: any; error?: string }> {
+    try {
+      let storeId = couponData.store_id;
+      if (!storeId || storeId === 'global') {
+        const { data: firstStore } = await supabase
+          .from('stores')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+
+        if (firstStore?.id) {
+          storeId = firstStore.id;
+        } else {
+          const { data: anyStore } = await supabase.from('stores').select('id').limit(1);
+          if (anyStore && anyStore.length > 0) {
+            storeId = anyStore[0].id;
+          }
+        }
+      }
+
+      if (!storeId) {
+        throw new Error('Aucune boutique active trouvée pour associer le code promo.');
+      }
+
+      const cleanCode = couponData.code.trim().toUpperCase();
+      if (!cleanCode) {
+        throw new Error('Le code promotionnel ne peut pas être vide.');
+      }
+
+      const { data, error } = await (supabase
+        .from('coupons')
+        .insert({
+          code: cleanCode,
+          discount_percent: Math.min(Math.max(1, Number(couponData.discount_percent) || 10), 90),
+          store_id: storeId,
+          status: couponData.status || 'active',
+          created_by: couponData.created_by || null,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single() as any);
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error(`Le code promo "${cleanCode}" existe déjà.`);
+        }
+        throw error;
+      }
+
+      return { success: true, coupon: data };
+    } catch (err: any) {
+      console.error('[AdminService] Error creating admin coupon:', err);
+      return { success: false, error: err.message || 'Impossible de créer le code promo.' };
     }
   }
 
@@ -914,6 +1008,24 @@ export class AdminService {
       return true;
     } catch (err) {
       console.error('[AdminService] Error rejecting coupon:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a promo coupon
+   */
+  static async deleteCoupon(couponId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('coupons')
+        .delete()
+        .eq('id', couponId);
+
+      if (error) throw error;
+      return true;
+    } catch (err) {
+      console.error('[AdminService] Error deleting coupon:', err);
       return false;
     }
   }
