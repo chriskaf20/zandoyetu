@@ -597,7 +597,7 @@ export class AdminService {
     try {
       let query = supabase
         .from('products')
-        .select('*, stores:vendor_id(id, store_name, city)')
+        .select('*')
         .order('local_updated_at', { ascending: false });
 
       if (vendorId && vendorId !== 'all') {
@@ -610,9 +610,28 @@ export class AdminService {
         query = query.neq('status', 'archived');
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data || []).map((row) => ProductService.mapRowToProduct(row));
+      const [productsRes, storesRes] = await Promise.all([
+        query,
+        supabase.from('stores').select('id, vendor_id, store_name, store_logo_url, city'),
+      ]);
+
+      if (productsRes.error) throw productsRes.error;
+
+      const storeMap = new Map((storesRes.data || []).map((s: any) => [s.vendor_id, s]));
+
+      return (productsRes.data || []).map((row: any) => {
+        const storeInfo = storeMap.get(row.vendor_id);
+        const prod = ProductService.mapRowToProduct(row);
+        if (storeInfo) {
+          prod.stores = {
+            id: storeInfo.id,
+            store_name: storeInfo.store_name,
+            store_logo_url: storeInfo.store_logo_url || null,
+            city: storeInfo.city || 'Lubumbashi',
+          };
+        }
+        return prod;
+      });
     } catch (err) {
       console.error('[AdminService] Error fetching products by store:', err);
       return [];
@@ -624,14 +643,32 @@ export class AdminService {
    */
   static async getArchivedProducts(): Promise<Product[]> {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*, stores:vendor_id(id, store_name, city)')
-        .eq('status', 'archived')
-        .order('local_updated_at', { ascending: false });
+      const [productsRes, storesRes] = await Promise.all([
+        supabase
+          .from('products')
+          .select('*')
+          .eq('status', 'archived')
+          .order('local_updated_at', { ascending: false }),
+        supabase.from('stores').select('id, vendor_id, store_name, store_logo_url, city'),
+      ]);
 
-      if (error) throw error;
-      return (data || []).map((row) => ProductService.mapRowToProduct(row));
+      if (productsRes.error) throw productsRes.error;
+
+      const storeMap = new Map((storesRes.data || []).map((s: any) => [s.vendor_id, s]));
+
+      return (productsRes.data || []).map((row: any) => {
+        const storeInfo = storeMap.get(row.vendor_id);
+        const prod = ProductService.mapRowToProduct(row);
+        if (storeInfo) {
+          prod.stores = {
+            id: storeInfo.id,
+            store_name: storeInfo.store_name,
+            store_logo_url: storeInfo.store_logo_url || null,
+            city: storeInfo.city || 'Lubumbashi',
+          };
+        }
+        return prod;
+      });
     } catch (err) {
       console.error('[AdminService] Error fetching archived products:', err);
       return [];

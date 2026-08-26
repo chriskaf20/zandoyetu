@@ -279,8 +279,12 @@ export default function AdminDashboardPage() {
   const handleVendorFilterChange = async (vendorId: string) => {
     setSelectedVendorFilter(vendorId);
     try {
-      const prods = await AdminService.getAllProductsAdmin(vendorId);
+      const [prods, archProds] = await Promise.all([
+        AdminService.getAllProductsAdmin(vendorId),
+        AdminService.getArchivedProducts(),
+      ]);
       setProducts(prods);
+      setArchivedProducts(vendorId === 'all' ? archProds : archProds.filter((p) => p.vendor_id === vendorId));
     } catch (err) {
       console.error('Error filtering products by store:', err);
     }
