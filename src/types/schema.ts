@@ -10,6 +10,8 @@ export type OrderStatus =
   | 'completed'
   | 'cancelled';
 
+export type SettlementStatus = 'escrow' | 'released' | 'paid';
+
 export interface User {
   id: string;
   email: string | null;
@@ -184,4 +186,26 @@ export interface FlashSale {
   items_sold: number;
   created_at: string;
   products?: Product;
+}
+
+export interface SettlementLedgerEntry {
+  id: string;
+  vendor_id: string;
+  order_id: string;
+  gross_usd: number;
+  gross_cdf: number;
+  commission_usd: number;
+  commission_cdf: number;
+  net_usd: number;
+  net_cdf: number;
+  status: SettlementStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VendorDailyRevenue {
+  date: string;
+  dayLabel: string;
+  usd: number;
+  cdf: number;
 }

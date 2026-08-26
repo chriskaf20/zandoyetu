@@ -1,22 +1,62 @@
 import { supabase } from '@/lib/supabase/client';
-import { Product, Store, Order } from '@/types/schema';
+import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale } from '@/types/schema';
 import { ProductService } from './ProductService';
+
+// ─── Input Types ─────────────────────────────────────────────────────────────
 
 export interface CreateProductInput {
   title: string;
+  title_fr?: string;
+  title_en?: string;
+  title_sw?: string;
   description?: string;
+  desc_fr?: string;
+  desc_en?: string;
+  desc_sw?: string;
   category: string;
   price_usd: number;
   price_cdf?: number;
-  compare_at_price?: number;
+  compare_at_price?: number | null;
   stock_count: number;
   target_gender: 'women' | 'men' | 'mixte';
   images_urls: string[];
   sizes: string[];
   colors: string[];
+  material_info?: string;
+  security_specs?: string;
+  delivery_time?: string;
+  delivery_fee_usd?: number | null;
+  has_free_return?: boolean;
+}
+
+export interface VendorFinancials {
+  gmv_usd: number;
+  gmv_cdf: number;
+  commission_usd: number;
+  commission_rate: number;
+  net_payout_usd: number;
+  total_orders: number;
+  completed_orders: number;
+  follower_count: number;
+  product_count: number;
+  average_rating: number;
+  review_count: number;
+}
+
+export interface VendorCoupon {
+  id: string;
+  code: string;
+  discount_percent: number;
+  store_id: string;
+  status: 'pending' | 'active' | 'rejected';
+  created_at: string;
+  created_by: string | null;
+  expires_at?: string | null;
 }
 
 export class VendorService {
+  // ── Store ──────────────────────────────────────────────────────────────────
+
   /**
    * Get store profile for a vendor
    */
@@ -41,14 +81,79 @@ export class VendorService {
       description: data.description,
       store_logo_url: data.store_logo_url,
       city: data.city,
-      momo_enabled: data.momo_enabled,
-      is_archived: data.is_archived,
+      phone: data.phone || null,
+      momo_enabled: !!data.momo_enabled,
+      is_archived: !!data.is_archived,
       is_verified: !!data.is_verified,
       pending_name: data.pending_name || null,
       pending_name_reason: data.pending_name_reason || null,
       created_at: data.created_at,
       updated_at: data.updated_at,
+      follower_count: data.follower_count || 0,
+      product_count: data.product_count || 0,
     };
+  }
+
+  /**
+   * Upsert or update store profile (non-name fields)
+   */
+  static async updateStore(
+    vendorId: string,
+    updates: {
+      store_name?: string;
+      description?: string;
+      city?: string;
+      store_logo_url?: string;
+      momo_enabled?: boolean;
+      phone?: string;
+    }
+  ): Promise<Store | null> {
+    const now = new Date().toISOString();
+    const existing = await this.getStoreByVendor(vendorId);
+
+    const payload: any = { updated_at: now };
+    if (updates.store_name !== undefined) payload.store_name = updates.store_name;
+    if (updates.description !== undefined) payload.description = updates.description || null;
+    if (updates.city !== undefined) payload.city = updates.city || 'Lubumbashi';
+    if (updates.store_logo_url !== undefined) payload.store_logo_url = updates.store_logo_url || null;
+    if (updates.momo_enabled !== undefined) payload.momo_enabled = updates.momo_enabled;
+    if (updates.phone !== undefined) payload.phone = updates.phone || null;
+
+    if (existing) {
+      const { data, error } = await (supabase
+        .from('stores')
+        .update(payload)
+        .eq('vendor_id', vendorId)
+        .select('*')
+        .single() as any);
+
+      if (error) {
+        console.error('[VendorService] Error updating store:', error);
+        throw error;
+      }
+      return data ? this.getStoreByVendor(vendorId) : null;
+    } else {
+      const { error } = await (supabase
+        .from('stores')
+        .insert({
+          vendor_id: vendorId,
+          store_name: updates.store_name || 'Ma Boutique',
+          description: updates.description || null,
+          city: updates.city || 'Lubumbashi',
+          store_logo_url: updates.store_logo_url || null,
+          momo_enabled: updates.momo_enabled ?? true,
+          phone: updates.phone || null,
+          is_archived: false,
+          created_at: now,
+          updated_at: now,
+        }) as any);
+
+      if (error) {
+        console.error('[VendorService] Error inserting store:', error);
+        throw error;
+      }
+      return this.getStoreByVendor(vendorId);
+    }
   }
 
   /**
@@ -75,95 +180,23 @@ export class VendorService {
     return true;
   }
 
-  /**
-   * Archive / soft delete product
-   */
-  static async archiveProduct(productId: string): Promise<boolean> {
-    const { error } = await (supabase
-      .from('products')
-      .update({
-        status: 'archived',
-        local_updated_at: new Date().toISOString(),
-      })
-      .eq('id', productId) as any);
-
-    if (error) {
-      console.error('[VendorService] Error archiving product:', error);
-      throw error;
-    }
-    return true;
-  }
+  // ── Products ───────────────────────────────────────────────────────────────
 
   /**
-   * Upsert or update store profile
+   * Get all products belonging to a vendor, optionally including archived
    */
-  static async updateStore(
-    vendorId: string,
-    updates: {
-      store_name: string;
-      description?: string;
-      city?: string;
-      store_logo_url?: string;
-      momo_enabled?: boolean;
-    }
-  ): Promise<Store | null> {
-    const now = new Date().toISOString();
-    const existing = await this.getStoreByVendor(vendorId);
-
-    if (existing) {
-      const { data, error } = await (supabase
-        .from('stores')
-        .update({
-          store_name: updates.store_name,
-          description: updates.description || null,
-          city: updates.city || 'Lubumbashi',
-          store_logo_url: updates.store_logo_url || null,
-          momo_enabled: updates.momo_enabled ?? true,
-          updated_at: now,
-        })
-        .eq('vendor_id', vendorId)
-        .select('*')
-        .single() as any);
-
-      if (error) {
-        console.error('[VendorService] Error updating store:', error);
-        throw error;
-      }
-      return data;
-    } else {
-      const { data, error } = await (supabase
-        .from('stores')
-        .insert({
-          vendor_id: vendorId,
-          store_name: updates.store_name,
-          description: updates.description || null,
-          city: updates.city || 'Lubumbashi',
-          store_logo_url: updates.store_logo_url || null,
-          momo_enabled: updates.momo_enabled ?? true,
-          is_archived: false,
-          created_at: now,
-          updated_at: now,
-        })
-        .select('*')
-        .single() as any);
-
-      if (error) {
-        console.error('[VendorService] Error inserting store:', error);
-        throw error;
-      }
-      return data;
-    }
-  }
-
-  /**
-   * Get all products belonging to a vendor
-   */
-  static async getVendorProducts(vendorId: string): Promise<Product[]> {
-    const { data, error } = await supabase
+  static async getVendorProducts(vendorId: string, includeArchived = false): Promise<Product[]> {
+    let query = supabase
       .from('products')
       .select('*')
       .eq('vendor_id', vendorId)
       .order('local_updated_at', { ascending: false });
+
+    if (!includeArchived) {
+      query = query.neq('status', 'archived');
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[VendorService] Error fetching vendor products:', error);
@@ -174,7 +207,7 @@ export class VendorService {
   }
 
   /**
-   * Create a new product
+   * Create a new product with full schema support
    */
   static async createProduct(vendorId: string, input: CreateProductInput): Promise<Product> {
     const now = new Date().toISOString();
@@ -186,16 +219,28 @@ export class VendorService {
       .insert({
         vendor_id: vendorId,
         title: input.title,
+        title_fr: input.title_fr || null,
+        title_en: input.title_en || null,
+        title_sw: input.title_sw || null,
         description: input.description || null,
+        desc_fr: input.desc_fr || null,
+        desc_en: input.desc_en || null,
+        desc_sw: input.desc_sw || null,
         category: input.category,
         price_usd: input.price_usd,
         price_cdf: priceCdf,
         compare_at_price: input.compare_at_price || null,
         stock_count: input.stock_count,
         target_gender: input.target_gender,
-        images_urls: input.images_urls,
+        images_urls: input.images_urls.filter(Boolean),
         sizes_json: input.sizes.length > 0 ? JSON.stringify(input.sizes) : null,
         colors_json: input.colors,
+        material_info: input.material_info || null,
+        security_specs: input.security_specs || null,
+        delivery_time: input.delivery_time || null,
+        delivery_fee_usd: input.delivery_fee_usd || null,
+        delivery_fee_cdf: input.delivery_fee_usd ? Math.round(input.delivery_fee_usd * exchangeRate) : null,
+        has_free_return: input.has_free_return ? 1 : 0,
         status: 'active',
         is_trending: false,
         local_updated_at: now,
@@ -212,31 +257,44 @@ export class VendorService {
   }
 
   /**
-   * Update an existing product
+   * Update an existing product with full schema support
    */
   static async updateProduct(
     productId: string,
     vendorId: string,
-    input: Partial<CreateProductInput> & { status?: string; is_trending?: boolean }
+    input: Partial<CreateProductInput> & { status?: 'active' | 'suspended' | 'archived'; is_trending?: boolean }
   ): Promise<Product> {
     const now = new Date().toISOString();
-    const updates: any = {
-      local_updated_at: now,
-    };
+    const exchangeRate = 2850;
+    const updates: any = { local_updated_at: now };
 
     if (input.title !== undefined) updates.title = input.title;
-    if (input.description !== undefined) updates.description = input.description;
+    if (input.title_fr !== undefined) updates.title_fr = input.title_fr || null;
+    if (input.title_en !== undefined) updates.title_en = input.title_en || null;
+    if (input.title_sw !== undefined) updates.title_sw = input.title_sw || null;
+    if (input.description !== undefined) updates.description = input.description || null;
+    if (input.desc_fr !== undefined) updates.desc_fr = input.desc_fr || null;
+    if (input.desc_en !== undefined) updates.desc_en = input.desc_en || null;
+    if (input.desc_sw !== undefined) updates.desc_sw = input.desc_sw || null;
     if (input.category !== undefined) updates.category = input.category;
     if (input.price_usd !== undefined) {
       updates.price_usd = input.price_usd;
-      updates.price_cdf = input.price_cdf || Math.round(input.price_usd * 2850);
+      updates.price_cdf = input.price_cdf || Math.round(input.price_usd * exchangeRate);
     }
-    if (input.compare_at_price !== undefined) updates.compare_at_price = input.compare_at_price;
+    if (input.compare_at_price !== undefined) updates.compare_at_price = input.compare_at_price || null;
     if (input.stock_count !== undefined) updates.stock_count = input.stock_count;
     if (input.target_gender !== undefined) updates.target_gender = input.target_gender;
-    if (input.images_urls !== undefined) updates.images_urls = input.images_urls;
+    if (input.images_urls !== undefined) updates.images_urls = input.images_urls.filter(Boolean);
     if (input.sizes !== undefined) updates.sizes_json = JSON.stringify(input.sizes);
     if (input.colors !== undefined) updates.colors_json = input.colors;
+    if (input.material_info !== undefined) updates.material_info = input.material_info || null;
+    if (input.security_specs !== undefined) updates.security_specs = input.security_specs || null;
+    if (input.delivery_time !== undefined) updates.delivery_time = input.delivery_time || null;
+    if (input.delivery_fee_usd !== undefined) {
+      updates.delivery_fee_usd = input.delivery_fee_usd || null;
+      updates.delivery_fee_cdf = input.delivery_fee_usd ? Math.round(input.delivery_fee_usd * exchangeRate) : null;
+    }
+    if (input.has_free_return !== undefined) updates.has_free_return = input.has_free_return ? 1 : 0;
     if (input.status !== undefined) updates.status = input.status;
     if (input.is_trending !== undefined) updates.is_trending = input.is_trending;
 
@@ -257,7 +315,47 @@ export class VendorService {
   }
 
   /**
-   * Delete / archive a product
+   * Update only the status of a product (archive, restore, suspend)
+   */
+  static async updateProductStatus(
+    productId: string,
+    vendorId: string,
+    status: 'active' | 'archived' | 'suspended'
+  ): Promise<boolean> {
+    const { error } = await (supabase
+      .from('products')
+      .update({ status, local_updated_at: new Date().toISOString() })
+      .eq('id', productId)
+      .eq('vendor_id', vendorId) as any);
+
+    if (error) {
+      console.error('[VendorService] Error updating product status:', error);
+      throw error;
+    }
+    return true;
+  }
+
+  /**
+   * Soft archive a product (status = 'archived')
+   */
+  static async archiveProduct(productId: string, vendorId?: string): Promise<boolean> {
+    const query = supabase
+      .from('products')
+      .update({ status: 'archived', local_updated_at: new Date().toISOString() })
+      .eq('id', productId);
+
+    if (vendorId) (query as any).eq('vendor_id', vendorId);
+
+    const { error } = await (query as any);
+    if (error) {
+      console.error('[VendorService] Error archiving product:', error);
+      throw error;
+    }
+    return true;
+  }
+
+  /**
+   * Permanently delete a product
    */
   static async deleteProduct(productId: string, vendorId: string): Promise<boolean> {
     const { error } = await supabase
@@ -273,14 +371,20 @@ export class VendorService {
     return true;
   }
 
+  // ── Orders ─────────────────────────────────────────────────────────────────
+
   /**
-   * Get vendor-specific orders
+   * Get all vendor-specific orders with customer info, product snapshot, and delivery details
    */
   static async getVendorOrders(vendorId: string): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('*, products(id, title, images_urls, price_usd), users:customer_id(full_name, phone, email)')
+        .select(`
+          *,
+          products(id, title, images_urls, price_usd, price_cdf, category),
+          users:customer_id(id, full_name, phone, email)
+        `)
         .eq('vendor_id', vendorId)
         .order('timestamp', { ascending: false });
 
@@ -292,7 +396,7 @@ export class VendorService {
       return (data || []).map((o: any) => ({
         ...o,
         products: Array.isArray(o.products) ? o.products[0] || null : o.products || null,
-        users: Array.isArray(o.users) ? o.users[0] || null : o.users || null,
+        customer: Array.isArray(o.users) ? o.users[0] || null : o.users || null,
       }));
     } catch (err) {
       console.error('[VendorService] Error in getVendorOrders:', err);
@@ -301,7 +405,7 @@ export class VendorService {
   }
 
   /**
-   * Update order status
+   * Update order status (vendor-permitted transitions only)
    */
   static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
     const { error } = await (supabase
@@ -319,8 +423,10 @@ export class VendorService {
     return true;
   }
 
+  // ── Image Upload ───────────────────────────────────────────────────────────
+
   /**
-   * Upload image to Supabase storage
+   * Upload image to Supabase Storage (product-images bucket) with local data URL fallback
    */
   static async uploadImage(file: File): Promise<string> {
     const fileExt = file.name.split('.').pop();
@@ -342,5 +448,237 @@ export class VendorService {
 
     const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
     return data.publicUrl;
+  }
+
+  // ── Financials ─────────────────────────────────────────────────────────────
+
+  /**
+   * Calculate vendor revenue metrics: GMV, commission, net payout, followers, reviews
+   */
+  static async getVendorFinancials(vendorId: string): Promise<VendorFinancials> {
+    const defaults: VendorFinancials = {
+      gmv_usd: 0, gmv_cdf: 0,
+      commission_usd: 0, commission_rate: 10,
+      net_payout_usd: 0,
+      total_orders: 0, completed_orders: 0,
+      follower_count: 0, product_count: 0,
+      average_rating: 0, review_count: 0,
+    };
+
+    try {
+      // Platform commission rate
+      const { data: settings } = await (supabase
+        .from('platform_settings')
+        .select('commission_rate')
+        .limit(1)
+        .maybeSingle() as any);
+      const commissionRate: number = settings?.commission_rate || 10;
+
+      // All orders for this vendor
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('total_usd, total_cdf, order_status')
+        .eq('vendor_id', vendorId);
+
+      const allOrders = orders || [];
+      const completedOrders = allOrders.filter(
+        (o: any) => o.order_status === 'completed' || o.order_status === 'shipped'
+      );
+      const gmv_usd = completedOrders.reduce((s: number, o: any) => s + (o.total_usd || 0), 0);
+      const gmv_cdf = completedOrders.reduce((s: number, o: any) => s + (o.total_cdf || 0), 0);
+      const commission_usd = (gmv_usd * commissionRate) / 100;
+
+      // Store follower & product counts
+      const { data: store } = await supabase
+        .from('stores')
+        .select('follower_count, product_count')
+        .eq('vendor_id', vendorId)
+        .maybeSingle();
+
+      // Active product IDs for review aggregation
+      const { data: productRows } = await supabase
+        .from('products')
+        .select('id')
+        .eq('vendor_id', vendorId)
+        .eq('status', 'active');
+
+      let average_rating = 0;
+      let review_count = 0;
+
+      if (productRows && productRows.length > 0) {
+        const ids = productRows.map((p: any) => p.id);
+        const { data: reviews } = await supabase
+          .from('reviews')
+          .select('rating')
+          .in('product_id', ids);
+        if (reviews && reviews.length > 0) {
+          review_count = reviews.length;
+          average_rating =
+            Math.round(
+              (reviews.reduce((s: number, r: any) => s + (r.rating || 0), 0) / review_count) * 10
+            ) / 10;
+        }
+      }
+
+      return {
+        gmv_usd,
+        gmv_cdf,
+        commission_usd,
+        commission_rate: commissionRate,
+        net_payout_usd: gmv_usd - commission_usd,
+        total_orders: allOrders.length,
+        completed_orders: completedOrders.length,
+        follower_count: (store as any)?.follower_count || 0,
+        product_count: (store as any)?.product_count || (productRows?.length ?? 0),
+        average_rating,
+        review_count,
+      };
+    } catch (err) {
+      console.error('[VendorService] Error fetching financials:', err);
+      return defaults;
+    }
+  }
+
+  /**
+   * Fetch 7-day revenue data for the vendor sales chart (UTC days)
+   */
+  static async getVendorSalesChart(vendorId: string): Promise<VendorDailyRevenue[]> {
+    const days: VendorDailyRevenue[] = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      days.push({
+        date: `${year}-${month}-${day}`,
+        dayLabel: d.toLocaleDateString('fr-CD', { weekday: 'short' }),
+        usd: 0,
+        cdf: 0,
+      });
+    }
+
+    try {
+      const { data: rows, error } = await supabase
+        .from('orders')
+        .select('total_usd, total_cdf, timestamp')
+        .eq('vendor_id', vendorId)
+        .eq('order_status', 'completed')
+        .order('timestamp', { ascending: true });
+
+      if (error) throw error;
+
+      (rows || []).forEach((row: any) => {
+        if (!row.timestamp) return;
+        const rowDate = row.timestamp.split('T')[0];
+        const match = days.find((d) => d.date === rowDate);
+        if (match) {
+          match.usd += Number(row.total_usd) || 0;
+          match.cdf += Number(row.total_cdf) || 0;
+        }
+      });
+    } catch (err) {
+      console.error('[VendorService] Error fetching sales chart data:', err);
+    }
+
+    return days;
+  }
+
+  /**
+   * Fetch vendor's settlement ledger entries from Supabase
+   */
+  static async getVendorSettlementLedger(vendorId: string): Promise<SettlementLedgerEntry[]> {
+    try {
+      const { data, error } = await supabase
+        .from('settlement_ledger')
+        .select('*')
+        .eq('vendor_id', vendorId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('[VendorService] Error fetching settlement ledger:', error);
+        return [];
+      }
+
+      return (data || []) as SettlementLedgerEntry[];
+    } catch (err) {
+      console.error('[VendorService] Error in getVendorSettlementLedger:', err);
+      return [];
+    }
+  }
+
+  // ── Coupons ────────────────────────────────────────────────────────────────
+
+  /**
+   * Get all coupons submitted for a vendor's store
+   */
+  static async getVendorCoupons(storeId: string): Promise<VendorCoupon[]> {
+    try {
+      const { data, error } = await supabase
+        .from('coupons')
+        .select('*')
+        .eq('store_id', storeId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('[VendorService] Error fetching coupons:', error);
+        return [];
+      }
+      return (data || []) as VendorCoupon[];
+    } catch (err) {
+      console.error('[VendorService] Error in getVendorCoupons:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Submit a promo code request for admin approval
+   */
+  static async submitCouponRequest(
+    storeId: string,
+    vendorId: string,
+    code: string,
+    discountPercent: number
+  ): Promise<boolean> {
+    const { error } = await supabase.from('coupons').insert({
+      store_id: storeId,
+      code: code.toUpperCase().trim(),
+      discount_percent: discountPercent,
+      status: 'pending',
+      created_by: vendorId,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error('[VendorService] Error submitting coupon request:', error);
+      throw error;
+    }
+    return true;
+  }
+
+  // ── Flash Sales ────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch active flash sales for a vendor's products
+   */
+  static async getVendorFlashSales(vendorId: string): Promise<FlashSale[]> {
+    try {
+      const { data, error } = await supabase
+        .from('flash_sales')
+        .select('*, products!inner(id, title, price_usd, price_cdf, vendor_id, images_urls, category)')
+        .eq('products.vendor_id', vendorId);
+
+      if (error) {
+        console.error('[VendorService] Error fetching flash sales:', error);
+        return [];
+      }
+
+      return (data || []) as FlashSale[];
+    } catch (err) {
+      console.error('[VendorService] Error in getVendorFlashSales:', err);
+      return [];
+    }
   }
 }
