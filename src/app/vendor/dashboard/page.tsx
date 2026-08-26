@@ -31,8 +31,6 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCcw,
-  Eye,
-  EyeOff,
   Check,
   Clock,
   Truck,
@@ -41,9 +39,9 @@ import {
   Info,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
-import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { VendorService, CreateProductInput, VendorCoupon, VendorFinancials } from '@/lib/services/VendorService';
-import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale, OrderStatus } from '@/types/schema';
+import { PlatformSettingsService } from '@/lib/services/PlatformSettingsService';
+import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale } from '@/types/schema';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -72,8 +70,8 @@ const ORDER_STATUS_CONFIG: Record<string, { label: string; bg: string; text: str
   pending:                   { label: 'En attente',    bg: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200' },
   pending_payment:           { label: 'Paiement att.', bg: 'bg-orange-50',  text: 'text-orange-700', border: 'border-orange-200' },
   awaiting_admin_clearance:  { label: 'Admin review',  bg: 'bg-purple-50',  text: 'text-purple-700', border: 'border-purple-200' },
-  approved:                  { label: 'Approuvée',     bg: 'bg-blue-50',    text: 'text-blue-700',   border: 'border-blue-200' },
-  processing:                { label: 'En prép.',      bg: 'bg-indigo-50',  text: 'text-indigo-700', border: 'border-indigo-200' },
+  approved:                  { label: 'Confirmée',     bg: 'bg-blue-50',    text: 'text-blue-700',   border: 'border-blue-200' },
+  processing:                { label: 'En préparation',bg: 'bg-indigo-50',  text: 'text-indigo-700', border: 'border-indigo-200' },
   shipped:                   { label: 'En livraison',  bg: 'bg-sky-50',     text: 'text-sky-700',    border: 'border-sky-200' },
   completed:                 { label: 'Livrée',        bg: 'bg-emerald-50', text: 'text-emerald-700',border: 'border-emerald-200' },
   cancelled:                 { label: 'Annulée',       bg: 'bg-red-50',     text: 'text-red-700',    border: 'border-red-200' },
@@ -90,13 +88,7 @@ const SETTLEMENT_STATUS_CONFIG: Record<string, { label: string; className: strin
 function emptyProductForm(): CreateProductInput {
   return {
     title: '',
-    title_fr: '',
-    title_en: '',
-    title_sw: '',
     description: '',
-    desc_fr: '',
-    desc_en: '',
-    desc_sw: '',
     category: '',
     price_usd: 0,
     price_cdf: 0,
@@ -267,6 +259,9 @@ export default function VendorDashboardPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // ── Dynamic Admin Exchange Rate ──
+  const [exchangeRate, setExchangeRate] = useState<number>(2850);
+
   // ── Core state ──
   const [store, setStore] = useState<Store | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -281,7 +276,6 @@ export default function VendorDashboardPage() {
   // ── Catalogue filters ──
   const [searchQuery, setSearchQuery] = useState('');
   const [productStatusFilter, setProductStatusFilter] = useState<ProductStatusFilter>('active');
-  const [showArchived, setShowArchived] = useState(false);
 
   // ── Order filters ──
   const [orderStatusFilter, setOrderStatusFilter] = useState<OrderStatusFilter>('all');
@@ -322,9 +316,6 @@ export default function VendorDashboardPage() {
   // ── Delete confirmation ──
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // ── Exchange rate (auto-calc CDF) ──
-  const [exchangeRate] = useState(2850);
-
   // ─── Data Loading ────────────────────────────────────────────────────────
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -336,12 +327,17 @@ export default function VendorDashboardPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const [fetchedStore, fetchedProducts, fetchedAllProducts, fetchedOrders] = await Promise.all([
+      const [fetchedStore, fetchedProducts, fetchedAllProducts, fetchedOrders, fetchedSettings] = await Promise.all([
         VendorService.getStoreByVendor(user.id),
         VendorService.getVendorProducts(user.id, false),
         VendorService.getVendorProducts(user.id, true),
         VendorService.getVendorOrders(user.id),
+        PlatformSettingsService.getSettings(),
       ]);
+
+      if (fetchedSettings?.exchange_rate) {
+        setExchangeRate(fetchedSettings.exchange_rate);
+      }
 
       setStore(fetchedStore);
       setProducts(fetchedProducts);
@@ -427,16 +423,10 @@ export default function VendorDashboardPage() {
     setEditingProductId(product.id);
     setProductForm({
       title: product.title,
-      title_fr: product.title_fr || '',
-      title_en: product.title_en || '',
-      title_sw: product.title_sw || '',
       description: product.description || '',
-      desc_fr: product.desc_fr || '',
-      desc_en: product.desc_en || '',
-      desc_sw: product.desc_sw || '',
       category: product.category || '',
       price_usd: product.price_usd,
-      price_cdf: product.price_cdf,
+      price_cdf: product.price_cdf || Math.round(product.price_usd * exchangeRate),
       compare_at_price: product.compare_at_price ?? null,
       stock_count: product.stock_count,
       target_gender: product.target_gender,
@@ -456,16 +446,17 @@ export default function VendorDashboardPage() {
   const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    if (!productForm.title.trim()) { showMessage('error', 'Le titre du produit est requis.'); return; }
+    if (!productForm.title.trim()) { showMessage('error', 'Le nom du produit est requis.'); return; }
     if (productForm.price_usd <= 0) { showMessage('error', 'Le prix USD est requis.'); return; }
     if (productForm.stock_count < 0) { showMessage('error', 'Le stock ne peut pas être négatif.'); return; }
     if (!productForm.category) { showMessage('error', 'Veuillez sélectionner une catégorie.'); return; }
 
     setSaving(true);
     try {
-      // Auto-fill primary title from FR if empty
-      const finalForm = { ...productForm };
-      if (!finalForm.title && finalForm.title_fr) finalForm.title = finalForm.title_fr;
+      const finalForm = {
+        ...productForm,
+        price_cdf: Math.round(productForm.price_usd * exchangeRate),
+      };
 
       if (editingProductId) {
         await VendorService.updateProduct(editingProductId, user.id, finalForm);
@@ -528,12 +519,12 @@ export default function VendorDashboardPage() {
     setImageUrlInput('');
   };
 
-  // ─── Order Status Actions ──────────────────────────────────────────────────
+  // ─── Order Status Fulfillment (Vendor marks ready/shipped) ──────────────────
 
-  const handleOrderStatus = async (orderId: string, newStatus: string) => {
+  const handleOrderFulfillment = async (orderId: string, newStatus: string) => {
     try {
       await VendorService.updateOrderStatus(orderId, newStatus);
-      showMessage('success', 'Statut de la commande mis à jour.');
+      showMessage('success', 'Statut de livraison mis à jour.');
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, order_status: newStatus } : o));
     } catch {
       showMessage('error', 'Erreur lors de la mise à jour du statut.');
@@ -760,6 +751,7 @@ export default function VendorDashboardPage() {
                   const isLowStock = product.stock_count > 0 && product.stock_count <= 3;
                   const isOutOfStock = product.stock_count <= 0;
                   const sizes = parseSizes(product.sizes_json);
+                  const priceCdf = product.price_cdf || Math.round(product.price_usd * exchangeRate);
 
                   return (
                     <div key={product.id} className={`bg-white border rounded-xl overflow-hidden flex flex-col shadow-card hover:shadow-hover transition-shadow ${product.status === 'archived' ? 'opacity-60' : ''}`} style={{ borderColor: '#E5E5E5' }}>
@@ -802,7 +794,7 @@ export default function VendorDashboardPage() {
                           {product.compare_at_price && (
                             <span className="text-xs text-brand-gray line-through">{formatUSD(product.compare_at_price)}</span>
                           )}
-                          <span className="text-[10px] text-brand-gray ml-auto">{formatCDF(product.price_cdf)}</span>
+                          <span className="text-[10px] text-brand-gray ml-auto">{formatCDF(priceCdf)}</span>
                         </div>
 
                         {/* Stock pill */}
@@ -861,7 +853,7 @@ export default function VendorDashboardPage() {
         )}
 
         {/* ════════════════════════════════════════════════════════════════
-            TAB 2: COMMANDES REÇUES
+            TAB 2: COMMANDES REÇUES (No accept/reject approval buttons)
         ════════════════════════════════════════════════════════════════ */}
         {activeTab === 'orders' && (
           <div>
@@ -895,7 +887,7 @@ export default function VendorDashboardPage() {
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <ShoppingBag className="w-12 h-12 text-brand-border mb-3" />
                 <p className="text-sm font-semibold text-brand-black">Aucune commande</p>
-                <p className="text-xs text-brand-gray mt-1">Les commandes reçues de vos clients apparaîtront ici.</p>
+                <p className="text-xs text-brand-gray mt-1">Les commandes passées par vos clients apparaîtront ici.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-4">
@@ -904,21 +896,17 @@ export default function VendorDashboardPage() {
                   const addr = parseDeliveryAddress(order.delivery_address || order.shipping_address);
                   const customer = order.customer;
                   const product = order.products;
+                  const orderCdf = order.total_cdf > 0 ? order.total_cdf : Math.round(order.total_usd * exchangeRate);
 
-                  // Determine available vendor actions
-                  let actions: { label: string; status: string; icon: React.ReactNode; primary: boolean }[] = [];
-                  if (order.order_status === 'pending' || order.order_status === 'approved') {
+                  // Vendor fulfillment buttons (Only for marking shipped / completed, NO accept/reject gate)
+                  let actions: { label: string; status: string; icon: React.ReactNode }[] = [];
+                  if (order.order_status === 'processing') {
                     actions = [
-                      { label: 'Accepter', status: 'processing', icon: <Check className="w-3 h-3" />, primary: true },
-                      { label: 'Refuser', status: 'cancelled', icon: <X className="w-3 h-3" />, primary: false },
-                    ];
-                  } else if (order.order_status === 'processing') {
-                    actions = [
-                      { label: 'Expédier / Prêt', status: 'shipped', icon: <Truck className="w-3 h-3" />, primary: true },
+                      { label: 'Prêt / Expédier la commande', status: 'shipped', icon: <Truck className="w-3.5 h-3.5" /> },
                     ];
                   } else if (order.order_status === 'shipped') {
                     actions = [
-                      { label: 'Confirmer Livraison', status: 'completed', icon: <CheckCircle className="w-3 h-3" />, primary: true },
+                      { label: 'Confirmer Livraison', status: 'completed', icon: <CheckCircle className="w-3.5 h-3.5" /> },
                     ];
                   }
 
@@ -948,9 +936,9 @@ export default function VendorDashboardPage() {
                           )}
 
                           <div className="pt-1.5 border-t border-brand-border">
-                            <p className="text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1">Livraison</p>
+                            <p className="text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1">Mode de Réception</p>
                             <p className="text-xs text-brand-black font-medium">
-                              {order.delivery_type === 'In-Store Pickup' ? '🏪 Retrait en boutique' : '📦 Paiement à la livraison'}
+                              {order.delivery_type === 'In-Store Pickup' ? '🏪 Retrait en boutique' : '📦 Livraison à domicile / adresse'}
                             </p>
                             {addr.commune && (
                               <p className="text-xs text-brand-gray flex items-start gap-1 mt-0.5">
@@ -966,7 +954,7 @@ export default function VendorDashboardPage() {
 
                         {/* Right: Product + Total */}
                         <div className="space-y-1.5">
-                          <p className="text-[10px] font-bold text-brand-gray uppercase tracking-wide">Article</p>
+                          <p className="text-[10px] font-bold text-brand-gray uppercase tracking-wide">Article Commandé</p>
                           {product && (
                             <div className="flex items-center gap-2">
                               {product.images_urls?.[0] && (
@@ -982,34 +970,30 @@ export default function VendorDashboardPage() {
                           )}
 
                           <div className="grid grid-cols-2 gap-1.5 text-[10px] text-brand-gray pt-1">
-                            <div><span className="font-medium">Qté :</span> {order.quantity || 1}</div>
-                            <div><span className="font-medium">Frais liv. :</span> {order.delivery_fee ? formatUSD(order.delivery_fee) : '—'}</div>
+                            <div><span className="font-medium">Quantité :</span> {order.quantity || 1} article(s)</div>
+                            <div><span className="font-medium">Frais liv. :</span> {order.delivery_fee ? formatUSD(order.delivery_fee) : 'Inclus'}</div>
                             {order.payment_reference && (
-                              <div className="col-span-2"><span className="font-medium">Réf. MoMo :</span> {order.payment_reference}</div>
+                              <div className="col-span-2"><span className="font-medium">Paiement :</span> Mobile Money ({order.payment_reference})</div>
                             )}
                           </div>
 
                           <div className="pt-1.5 border-t border-brand-border">
-                            <p className="text-[10px] font-bold text-brand-gray uppercase tracking-wide">Total</p>
+                            <p className="text-[10px] font-bold text-brand-gray uppercase tracking-wide">Montant Total</p>
                             <p className="text-base font-bold text-brand-black">{formatUSD(order.total_usd)}</p>
-                            <p className="text-xs text-brand-gray">{formatCDF(order.total_cdf)}</p>
+                            <p className="text-xs text-brand-gray">{formatCDF(orderCdf)}</p>
                           </div>
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
+                      {/* Fulfillment Actions (Only for status progression) */}
                       {actions.length > 0 && (
                         <div className="flex gap-2 mt-3 pt-3 border-t border-brand-border">
                           {actions.map(action => (
                             <button
                               key={action.status}
                               id={`order-action-${order.id}-${action.status}`}
-                              onClick={() => handleOrderStatus(order.id, action.status)}
-                              className={`flex items-center gap-1.5 px-4 py-2 rounded text-xs font-bold uppercase tracking-wide transition-colors ${
-                                action.primary
-                                  ? 'bg-brand-black text-white hover:bg-brand-charcoal'
-                                  : 'border border-brand-border text-brand-gray hover:bg-brand-lightGray'
-                              }`}
+                              onClick={() => handleOrderFulfillment(order.id, action.status)}
+                              className="flex items-center gap-1.5 px-4 py-2 rounded text-xs font-bold uppercase tracking-wide bg-brand-black text-white hover:bg-brand-charcoal transition-colors"
                             >
                               {action.icon}{action.label}
                             </button>
@@ -1246,7 +1230,7 @@ export default function VendorDashboardPage() {
                   {chartMode === 'all' && (
                     <div className="flex gap-4 mt-3 text-[10px]">
                       <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-brand-black inline-block" /> USD</span>
-                      <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-brand-accent inline-block" style={{ background: '#D97706' }} /> CDF (ref)</span>
+                      <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-brand-accent inline-block" style={{ background: '#D97706' }} /> CDF (taux {exchangeRate})</span>
                     </div>
                   )}
                 </div>
@@ -1431,7 +1415,7 @@ export default function VendorDashboardPage() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          PRODUCT MODAL
+          PRODUCT MODAL (Clean, single language input with automatic translations & FX calc)
       ═══════════════════════════════════════════════════════════════════════ */}
       {isProductModalOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm overflow-y-auto py-6 px-4">
@@ -1494,34 +1478,18 @@ export default function VendorDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Titre principal + multilingual */}
+                    {/* Titre du produit */}
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Titre Principal *</label>
+                      <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Nom de l'article *</label>
                       <input
                         id="product-title"
                         type="text"
                         required
                         value={productForm.title}
                         onChange={(e) => setProductForm(f => ({ ...f, title: e.target.value }))}
-                        placeholder="Titre affiché aux clients"
+                        placeholder="Ex: Robe de Soirée Satinée, Sneakers Cuir…"
                         className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
                       />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      {[['title_fr', 'FR'], ['title_en', 'EN'], ['title_sw', 'SW']] .map(([field, lang]) => (
-                        <div key={field}>
-                          <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1">Titre {lang}</label>
-                          <input
-                            id={`product-${field}`}
-                            type="text"
-                            value={(productForm as any)[field] || ''}
-                            onChange={(e) => setProductForm(f => ({ ...f, [field]: e.target.value }))}
-                            placeholder={`Version ${lang}`}
-                            className="w-full px-2 py-1.5 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
-                          />
-                        </div>
-                      ))}
                     </div>
 
                     {/* Category */}
@@ -1533,7 +1501,7 @@ export default function VendorDashboardPage() {
                         onClick={() => setCategoryMenuOpen(o => !o)}
                         className="w-full flex items-center justify-between px-3 py-2 text-xs border border-brand-border rounded-lg bg-white focus:outline-none"
                       >
-                        <span className={productForm.category ? 'text-brand-black' : 'text-brand-gray'}>{productForm.category || 'Sélectionner une catégorie…'}</span>
+                        <span className={productForm.category ? 'text-brand-black font-medium' : 'text-brand-gray'}>{productForm.category || 'Sélectionner une catégorie…'}</span>
                         {categoryMenuOpen ? <ChevronUp className="w-3.5 h-3.5 text-brand-gray" /> : <ChevronDown className="w-3.5 h-3.5 text-brand-gray" />}
                       </button>
                       {categoryMenuOpen && (
@@ -1546,7 +1514,7 @@ export default function VendorDashboardPage() {
                                   key={sub}
                                   type="button"
                                   onClick={() => { setProductForm(f => ({ ...f, category: sub })); setCategoryMenuOpen(false); }}
-                                  className={`w-full text-left px-4 py-2 text-xs hover:bg-brand-lightGray transition-colors ${productForm.category === sub ? 'bg-brand-black text-white hover:bg-brand-black' : 'text-brand-black'}`}
+                                  className={`w-full text-left px-4 py-2 text-xs hover:bg-brand-lightGray transition-colors ${productForm.category === sub ? 'bg-brand-black text-white hover:bg-brand-black font-semibold' : 'text-brand-black'}`}
                                 >
                                   {sub}
                                 </button>
@@ -1557,32 +1525,17 @@ export default function VendorDashboardPage() {
                       )}
                     </div>
 
-                    {/* Description (multilingual) */}
+                    {/* Description */}
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Description (FR)</label>
+                      <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Description de l'article</label>
                       <textarea
-                        id="product-desc-fr"
-                        rows={3}
-                        value={productForm.desc_fr || ''}
-                        onChange={(e) => setProductForm(f => ({ ...f, desc_fr: e.target.value, description: e.target.value }))}
-                        placeholder="Description détaillée en français…"
+                        id="product-desc"
+                        rows={4}
+                        value={productForm.description || ''}
+                        onChange={(e) => setProductForm(f => ({ ...f, description: e.target.value }))}
+                        placeholder="Présentation de l'article, coupe, style, conseils…"
                         className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black resize-none"
                       />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[['desc_en', 'EN'], ['desc_sw', 'SW']].map(([field, lang]) => (
-                        <div key={field}>
-                          <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1">Description {lang}</label>
-                          <textarea
-                            id={`product-${field}`}
-                            rows={2}
-                            value={(productForm as any)[field] || ''}
-                            onChange={(e) => setProductForm(f => ({ ...f, [field]: e.target.value }))}
-                            placeholder={`Version ${lang}`}
-                            className="w-full px-2 py-1.5 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black resize-none"
-                          />
-                        </div>
-                      ))}
                     </div>
                   </div>
                 )}
@@ -1592,30 +1545,29 @@ export default function VendorDashboardPage() {
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Prix USD *</label>
+                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Prix en USD ($) *</label>
                         <input
                           id="product-price-usd"
                           type="number" min={0} step={0.5} required
                           value={productForm.price_usd || ''}
                           onChange={(e) => {
                             const usd = Number(e.target.value);
-                            setProductForm(f => ({ ...f, price_usd: usd, price_cdf: f.price_cdf || Math.round(usd * exchangeRate) }));
+                            setProductForm(f => ({
+                              ...f,
+                              price_usd: usd,
+                              price_cdf: Math.round(usd * exchangeRate),
+                            }));
                           }}
                           placeholder="0.00"
-                          className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
+                          className="w-full px-3 py-2 text-xs font-bold text-brand-black border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Prix CDF *</label>
-                        <input
-                          id="product-price-cdf"
-                          type="number" min={0} step={100}
-                          value={productForm.price_cdf || ''}
-                          onChange={(e) => setProductForm(f => ({ ...f, price_cdf: Number(e.target.value) }))}
-                          placeholder={`≈ ${Math.round((productForm.price_usd || 0) * exchangeRate).toLocaleString()}`}
-                          className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
-                        />
-                        <p className="text-[10px] text-brand-gray mt-1">Taux auto : {exchangeRate} CDF/USD</p>
+                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Prix en CDF (Calculé)</label>
+                        <div className="px-3 py-2 bg-brand-lightGray border border-brand-border rounded-lg text-xs font-bold text-brand-black">
+                          {formatCDF(Math.round((productForm.price_usd || 0) * exchangeRate))}
+                        </div>
+                        <p className="text-[10px] text-brand-gray mt-1">Taux officiel plateforme : 1 $ = {exchangeRate.toLocaleString()} CDF</p>
                       </div>
                     </div>
 
@@ -1630,9 +1582,10 @@ export default function VendorDashboardPage() {
                           placeholder="Ex: 35.00"
                           className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
                         />
+                        <p className="text-[10px] text-brand-gray mt-1">Optionnel pour afficher une réduction</p>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Stock Disponible *</label>
+                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Quantité en Stock *</label>
                         <input
                           id="product-stock"
                           type="number" min={0} required
@@ -1651,7 +1604,7 @@ export default function VendorDashboardPage() {
                         type="text"
                         value={productForm.material_info || ''}
                         onChange={(e) => setProductForm(f => ({ ...f, material_info: e.target.value }))}
-                        placeholder="Ex: 100% Coton Bio, Polyester…"
+                        placeholder="Ex: 100% Coton Bio, Soie, Cuir véritable…"
                         className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
                       />
                     </div>
@@ -1662,7 +1615,7 @@ export default function VendorDashboardPage() {
                         type="text"
                         value={productForm.security_specs || ''}
                         onChange={(e) => setProductForm(f => ({ ...f, security_specs: e.target.value }))}
-                        placeholder="Ex: Laver à 30°C, ne pas sécher au sèche-linge…"
+                        placeholder="Ex: Lavage à froid 30°C, repassage doux…"
                         className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
                       />
                     </div>
@@ -1899,7 +1852,7 @@ export default function VendorDashboardPage() {
               {/* Modal Footer */}
               <div className="flex items-center justify-between px-6 py-4 border-t border-brand-border bg-brand-offWhite rounded-b-2xl">
                 <div className="flex gap-2">
-                  {(['info', 'pricing', 'attributes', 'media', 'delivery'] as const).map((tab, i) => (
+                  {(['info', 'pricing', 'attributes', 'media', 'delivery'] as const).map((tab) => (
                     <button
                       key={tab}
                       type="button"

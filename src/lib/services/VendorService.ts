@@ -1,18 +1,13 @@
 import { supabase } from '@/lib/supabase/client';
 import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale } from '@/types/schema';
 import { ProductService } from './ProductService';
+import { PlatformSettingsService } from './PlatformSettingsService';
 
 // ─── Input Types ─────────────────────────────────────────────────────────────
 
 export interface CreateProductInput {
   title: string;
-  title_fr?: string;
-  title_en?: string;
-  title_sw?: string;
   description?: string;
-  desc_fr?: string;
-  desc_en?: string;
-  desc_sw?: string;
   category: string;
   price_usd: number;
   price_cdf?: number;
@@ -183,6 +178,18 @@ export class VendorService {
   // ── Products ───────────────────────────────────────────────────────────────
 
   /**
+   * Helper to retrieve current platform exchange rate from admin settings
+   */
+  static async getActiveExchangeRate(): Promise<number> {
+    try {
+      const settings = await PlatformSettingsService.getSettings();
+      return settings?.exchange_rate || 2850;
+    } catch {
+      return 2850;
+    }
+  }
+
+  /**
    * Get all products belonging to a vendor, optionally including archived
    */
   static async getVendorProducts(vendorId: string, includeArchived = false): Promise<Product[]> {
@@ -207,25 +214,30 @@ export class VendorService {
   }
 
   /**
-   * Create a new product with full schema support
+   * Create a new product:
+   * - Automatically calculates price_cdf from the admin's configured exchange rate
+   * - Automatically populates multilingual columns (FR, EN, SW) from the vendor's title and description without requiring manual entry
    */
   static async createProduct(vendorId: string, input: CreateProductInput): Promise<Product> {
     const now = new Date().toISOString();
-    const exchangeRate = 2850;
+    const exchangeRate = await this.getActiveExchangeRate();
     const priceCdf = input.price_cdf || Math.round(input.price_usd * exchangeRate);
+
+    const titleClean = input.title.trim();
+    const descClean = input.description?.trim() || null;
 
     const { data, error } = await (supabase
       .from('products')
       .insert({
         vendor_id: vendorId,
-        title: input.title,
-        title_fr: input.title_fr || null,
-        title_en: input.title_en || null,
-        title_sw: input.title_sw || null,
-        description: input.description || null,
-        desc_fr: input.desc_fr || null,
-        desc_en: input.desc_en || null,
-        desc_sw: input.desc_sw || null,
+        title: titleClean,
+        title_fr: titleClean,
+        title_en: titleClean,
+        title_sw: titleClean,
+        description: descClean,
+        desc_fr: descClean,
+        desc_en: descClean,
+        desc_sw: descClean,
         category: input.category,
         price_usd: input.price_usd,
         price_cdf: priceCdf,
@@ -235,9 +247,9 @@ export class VendorService {
         images_urls: input.images_urls.filter(Boolean),
         sizes_json: input.sizes.length > 0 ? JSON.stringify(input.sizes) : null,
         colors_json: input.colors,
-        material_info: input.material_info || null,
-        security_specs: input.security_specs || null,
-        delivery_time: input.delivery_time || null,
+        material_info: input.material_info?.trim() || null,
+        security_specs: input.security_specs?.trim() || null,
+        delivery_time: input.delivery_time?.trim() || null,
         delivery_fee_usd: input.delivery_fee_usd || null,
         delivery_fee_cdf: input.delivery_fee_usd ? Math.round(input.delivery_fee_usd * exchangeRate) : null,
         has_free_return: input.has_free_return ? 1 : 0,
@@ -257,7 +269,9 @@ export class VendorService {
   }
 
   /**
-   * Update an existing product with full schema support
+   * Update an existing product:
+   * - Automatically updates price_cdf with the admin's configured exchange rate
+   * - Automatically populates multilingual columns (FR, EN, SW) from the vendor's title and description
    */
   static async updateProduct(
     productId: string,
@@ -265,17 +279,23 @@ export class VendorService {
     input: Partial<CreateProductInput> & { status?: 'active' | 'suspended' | 'archived'; is_trending?: boolean }
   ): Promise<Product> {
     const now = new Date().toISOString();
-    const exchangeRate = 2850;
+    const exchangeRate = await this.getActiveExchangeRate();
     const updates: any = { local_updated_at: now };
 
-    if (input.title !== undefined) updates.title = input.title;
-    if (input.title_fr !== undefined) updates.title_fr = input.title_fr || null;
-    if (input.title_en !== undefined) updates.title_en = input.title_en || null;
-    if (input.title_sw !== undefined) updates.title_sw = input.title_sw || null;
-    if (input.description !== undefined) updates.description = input.description || null;
-    if (input.desc_fr !== undefined) updates.desc_fr = input.desc_fr || null;
-    if (input.desc_en !== undefined) updates.desc_en = input.desc_en || null;
-    if (input.desc_sw !== undefined) updates.desc_sw = input.desc_sw || null;
+    if (input.title !== undefined) {
+      const t = input.title.trim();
+      updates.title = t;
+      updates.title_fr = t;
+      updates.title_en = t;
+      updates.title_sw = t;
+    }
+    if (input.description !== undefined) {
+      const d = input.description?.trim() || null;
+      updates.description = d;
+      updates.desc_fr = d;
+      updates.desc_en = d;
+      updates.desc_sw = d;
+    }
     if (input.category !== undefined) updates.category = input.category;
     if (input.price_usd !== undefined) {
       updates.price_usd = input.price_usd;
@@ -287,9 +307,9 @@ export class VendorService {
     if (input.images_urls !== undefined) updates.images_urls = input.images_urls.filter(Boolean);
     if (input.sizes !== undefined) updates.sizes_json = JSON.stringify(input.sizes);
     if (input.colors !== undefined) updates.colors_json = input.colors;
-    if (input.material_info !== undefined) updates.material_info = input.material_info || null;
-    if (input.security_specs !== undefined) updates.security_specs = input.security_specs || null;
-    if (input.delivery_time !== undefined) updates.delivery_time = input.delivery_time || null;
+    if (input.material_info !== undefined) updates.material_info = input.material_info?.trim() || null;
+    if (input.security_specs !== undefined) updates.security_specs = input.security_specs?.trim() || null;
+    if (input.delivery_time !== undefined) updates.delivery_time = input.delivery_time?.trim() || null;
     if (input.delivery_fee_usd !== undefined) {
       updates.delivery_fee_usd = input.delivery_fee_usd || null;
       updates.delivery_fee_cdf = input.delivery_fee_usd ? Math.round(input.delivery_fee_usd * exchangeRate) : null;
@@ -405,7 +425,7 @@ export class VendorService {
   }
 
   /**
-   * Update order status (vendor-permitted transitions only)
+   * Update order fulfillment status (e.g. 'shipped' when prepared/shipped)
    */
   static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
     const { error } = await (supabase
@@ -466,13 +486,14 @@ export class VendorService {
     };
 
     try {
-      // Platform commission rate
+      // Platform commission & exchange rate
       const { data: settings } = await (supabase
         .from('platform_settings')
-        .select('commission_rate')
+        .select('commission_rate, exchange_rate')
         .limit(1)
         .maybeSingle() as any);
       const commissionRate: number = settings?.commission_rate || 10;
+      const exchangeRate: number = settings?.exchange_rate || 2850;
 
       // All orders for this vendor
       const { data: orders } = await supabase
@@ -485,7 +506,7 @@ export class VendorService {
         (o: any) => o.order_status === 'completed' || o.order_status === 'shipped'
       );
       const gmv_usd = completedOrders.reduce((s: number, o: any) => s + (o.total_usd || 0), 0);
-      const gmv_cdf = completedOrders.reduce((s: number, o: any) => s + (o.total_cdf || 0), 0);
+      const gmv_cdf = completedOrders.reduce((s: number, o: any) => s + (o.total_cdf || (o.total_usd ? o.total_usd * exchangeRate : 0)), 0);
       const commission_usd = (gmv_usd * commissionRate) / 100;
 
       // Store follower & product counts
@@ -561,6 +582,7 @@ export class VendorService {
     }
 
     try {
+      const rate = await this.getActiveExchangeRate();
       const { data: rows, error } = await supabase
         .from('orders')
         .select('total_usd, total_cdf, timestamp')
@@ -575,8 +597,10 @@ export class VendorService {
         const rowDate = row.timestamp.split('T')[0];
         const match = days.find((d) => d.date === rowDate);
         if (match) {
-          match.usd += Number(row.total_usd) || 0;
-          match.cdf += Number(row.total_cdf) || 0;
+          const usd = Number(row.total_usd) || 0;
+          const cdf = Number(row.total_cdf) || (usd * rate);
+          match.usd += usd;
+          match.cdf += cdf;
         }
       });
     } catch (err) {
