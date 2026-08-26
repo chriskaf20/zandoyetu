@@ -247,13 +247,16 @@ export class AdminService {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, email, phone, full_name, role, status, local_updated_at, created_at')
+        .select('id, email, phone, full_name, role, status, local_updated_at')
         .order('local_updated_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching users:', error);
+        return [];
+      }
       return data || [];
     } catch (err) {
-      console.error('[AdminService] Error fetching all users:', err);
+      console.error('Failed to get users:', err);
       return [];
     }
   }

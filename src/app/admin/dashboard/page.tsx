@@ -656,9 +656,15 @@ export default function AdminDashboardPage() {
   });
 
   const filteredClients = users.filter((u) => {
-    if (u.role === 'vendor' || u.role === 'admin') return false;
-    const q = userSearchQuery.toLowerCase();
-    return !q || u.email?.toLowerCase().includes(q) || u.full_name?.toLowerCase().includes(q) || u.phone?.toLowerCase().includes(q);
+    if (u.role === 'admin') return false;
+    const q = userSearchQuery.toLowerCase().trim();
+    return (
+      !q ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+      (u.phone && u.phone.toLowerCase().includes(q)) ||
+      (u.id && u.id.toLowerCase().includes(q))
+    );
   });
 
   const filteredStores = stores.filter((s) => {
@@ -1273,45 +1279,69 @@ export default function AdminDashboardPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {filteredClients.map((u) => {
                         const isSuspended = u.status === 'suspended';
+                        const displayName = u.full_name || 'Client Zando';
+                        const identifier = u.email || u.phone || 'Utilisateur sans email';
+                        const initial = (u.full_name?.[0] || u.email?.[0] || u.phone?.[0] || 'U').toUpperCase();
+                        const regDate = u.local_updated_at || u.created_at
+                          ? new Date(u.local_updated_at || u.created_at).toLocaleDateString('fr-FR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })
+                          : null;
+
                         return (
-                          <div key={u.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 flex flex-col justify-between">
+                          <div key={u.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 space-y-3 flex flex-col justify-between shadow-sm hover:border-neutral-700 transition">
                             <div className="flex items-start gap-3">
-                              <div className="w-10 h-10 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center font-bold text-amber-400 flex-shrink-0">
-                                {(u.full_name?.[0] || u.email?.[0] || 'U').toUpperCase()}
+                              <div className="w-10 h-10 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center font-bold text-amber-400 flex-shrink-0 text-sm">
+                                {initial}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-1">
-                                  <p className="font-bold text-white text-xs truncate">{u.full_name || 'Client'}</p>
-                                  <span className={`px-2 py-0.2 rounded text-[9px] font-bold uppercase ${
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <p className="font-bold text-white text-xs truncate">{displayName}</p>
+                                    {u.role && u.role !== 'customer' && (
+                                      <span className="px-1.5 py-0.2 bg-neutral-800 text-amber-300 text-[9px] font-mono rounded uppercase">
+                                        {u.role}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
                                     isSuspended ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
                                   }`}>
                                     {isSuspended ? 'SUSPENDU' : 'ACTIF'}
                                   </span>
                                 </div>
-                                <p className="text-neutral-400 text-[11px] truncate mt-0.5">{u.email}</p>
-                                <p className="text-neutral-500 text-[10px] truncate">{u.phone || 'Sans téléphone'}</p>
+                                <p className="text-neutral-400 text-[11px] truncate mt-0.5 font-mono">{identifier}</p>
+                                {u.email && u.phone && (
+                                  <p className="text-neutral-500 text-[10px] truncate">{u.phone}</p>
+                                )}
+                                {regDate && (
+                                  <p className="text-neutral-500 text-[10px] mt-1">Inscrit le : {regDate}</p>
+                                )}
                               </div>
                             </div>
 
-                            <div className="pt-2 border-t border-neutral-800 flex items-center justify-between gap-2">
+                            <div className="pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleToggleUserStatus(u.id, u.status, u.email)}
+                                onClick={() => handleToggleUserStatus(u.id, u.status, identifier)}
                                 disabled={processingUserId === u.id}
-                                className={`px-2.5 py-1 text-[11px] font-bold rounded transition border ${
+                                className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition border text-center ${
                                   isSuspended
                                     ? 'bg-emerald-950 text-emerald-300 border-emerald-800 hover:bg-emerald-900'
-                                    : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700'
+                                    : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:border-red-800/80 hover:text-red-300'
                                 }`}
                               >
-                                {isSuspended ? 'Réactiver' : 'Suspendre'}
+                                {isSuspended ? 'RÉACTIVER LE COMPTE' : 'SUSPENDRE LE COMPTE'}
                               </button>
 
                               <button
                                 type="button"
-                                onClick={() => handleDeleteUser(u.id, u.email)}
+                                onClick={() => handleDeleteUser(u.id, identifier)}
                                 disabled={processingUserId === u.id}
-                                className="px-2 py-1 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded transition"
+                                className="p-1.5 text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/50 border border-red-900/30 rounded-lg transition"
+                                title="Supprimer définitivement"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
