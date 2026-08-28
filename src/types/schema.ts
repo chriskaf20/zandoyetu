@@ -209,3 +209,38 @@ export interface VendorDailyRevenue {
   usd: number;
   cdf: number;
 }
+
+export interface MerchantApplication {
+  id: string;
+  user_id: string;
+  full_name: string;
+  store_name: string;
+  operational_city: string;
+  product_focus: string;
+  fulfillment_type: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+}
+
+export interface TicketThread {
+  id: string;
+  customer_id: string;
+  subject: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  created_at: string;
+  updated_at: string;
+  users?: {
+    id: string;
+    email: string | null;
+    phone: string | null;
+    full_name: string;
+  } | null;
+}
+
+export interface TicketMessage {
+  id: string;
+  thread_id: string;
+  sender_id: string;
+  message_body: string;
+  created_at: string;
+}

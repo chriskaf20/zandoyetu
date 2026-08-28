@@ -20,6 +20,7 @@ export default function ProfilePage() {
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [address, setAddress] = useState(user?.physical_address || '');
+  const [genderPreference, setGenderPreference] = useState<'all' | 'women' | 'men'>(user?.gender_preference || 'all');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -54,6 +55,7 @@ export default function ProfilePage() {
           full_name: fullName.trim(),
           phone: phone.trim() || null,
           physical_address: address.trim() || null,
+          gender_preference: genderPreference,
           local_updated_at: new Date().toISOString(),
         } as any)
         .eq('id', user.id) as any);
@@ -64,6 +66,7 @@ export default function ProfilePage() {
           full_name: fullName.trim(),
           phone: phone.trim() || null,
           physical_address: address.trim() || null,
+          gender_preference: genderPreference,
         });
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
@@ -167,14 +170,12 @@ export default function ProfilePage() {
               Vendez vos vêtements, créations locales et accessoires aux milliers de clients de Lubumbashi et Kolwezi.
             </p>
           </div>
-          <a
-            href="https://wa.me/243830634340?text=Bonjour%20Zando%20Yetu,%20je%20souhaite%20devenir%20vendeur%20sur%20la%20plateforme"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/become-vendor"
             className="px-4 py-2.5 bg-brand-black hover:bg-neutral-800 text-white text-xs font-bold uppercase tracking-wider rounded whitespace-nowrap transition shadow-sm"
           >
             Postuler comme Vendeur &rarr;
-          </a>
+          </Link>
         </div>
       )}
 
@@ -223,6 +224,32 @@ export default function ProfilePage() {
             placeholder={t('phonePlaceholder')}
             className="w-full px-3 py-2 text-xs bg-brand-lightGray border border-brand-border rounded focus:border-brand-black focus:bg-white focus:outline-none"
           />
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-semibold uppercase tracking-wider text-brand-black mb-1.5">
+            Rayon & Préférence Vestimentaire
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: 'all', label: 'Tous les Rayons' },
+              { key: 'women', label: 'Mode Femme' },
+              { key: 'men', label: 'Mode Homme' },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setGenderPreference(opt.key as any)}
+                className={`py-2 px-3 text-xs font-semibold rounded-lg border transition text-center ${
+                  genderPreference === opt.key
+                    ? 'bg-brand-black text-white border-brand-black shadow-xs'
+                    : 'bg-brand-lightGray text-neutral-600 border-brand-border hover:border-neutral-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div>

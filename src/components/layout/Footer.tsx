@@ -87,8 +87,9 @@ export function Footer() {
             ) : (
               <li><Link href="/login" className="hover:text-white transition">{t('footerLoginRegister')}</Link></li>
             )}
+            <li><Link href="/support" className="hover:text-white transition">Centre d'Assistance & Tickets</Link></li>
             <li>
-              <Link href={user ? '/profile' : '/register?role=vendor'} className="text-amber-400 hover:underline">
+              <Link href="/become-vendor" className="text-amber-400 hover:underline">
                 Devenir Vendeur (Créateur & Shop) &rarr;
               </Link>
             </li>

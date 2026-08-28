@@ -149,7 +149,7 @@ export function Navbar() {
 
               {/* Wishlist Favorites Button */}
               <Link
-                href="/?wishlist=true"
+                href="/favorites"
                 className="relative p-2 text-brand-black hover:opacity-75 transition hidden sm:inline-flex"
                 aria-label="Wishlist"
                 title={t('wishlistTitle')}
@@ -192,7 +192,7 @@ export function Navbar() {
                   </button>
 
                   {isUserMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white border border-brand-border shadow-xl rounded py-1 z-50 animate-in fade-in">
+                    <div className="absolute right-0 mt-2 w-52 bg-white border border-brand-border shadow-xl rounded-xl py-1.5 z-50 animate-in fade-in">
                       <div className="px-4 py-2 border-b border-brand-border text-xs">
                         <p className="font-semibold text-brand-black truncate">{user.full_name || 'Client'}</p>
                         <p className="text-brand-gray truncate">{user.email || user.phone}</p>
@@ -211,6 +211,31 @@ export function Navbar() {
                       >
                         {t('myOrders')}
                       </Link>
+                      <Link
+                        href="/favorites"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        className="block px-4 py-2 text-xs text-brand-black hover:bg-brand-lightGray transition"
+                      >
+                        ❤️ Mes Favoris & Boutiques
+                      </Link>
+                      <Link
+                        href="/support"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        className="block px-4 py-2 text-xs text-brand-black hover:bg-brand-lightGray transition"
+                      >
+                        🎧 Centre d'Assistance & Tickets
+                      </Link>
+
+                      {/* Become a vendor link if customer */}
+                      {user.role === 'customer' && (
+                        <Link
+                          href="/become-vendor"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="block px-4 py-2 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition border-y border-amber-200/50"
+                        >
+                          ✨ Devenir Vendeur
+                        </Link>
+                      )}
 
                       {/* Vendor Portal Link */}
                       {(user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin')) && (
@@ -338,11 +363,18 @@ export function Navbar() {
               {t('cartTitle')} ({cartCount})
             </Link>
             <Link
-              href="/?wishlist=true"
+              href="/favorites"
               onClick={() => setIsMobileMenuOpen(false)}
               className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
             >
               {t('wishlistTitle')} ({favoriteCount})
+            </Link>
+            <Link
+              href="/support"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="block py-1.5 text-sm text-neutral-700 hover:text-brand-black"
+            >
+              🎧 Centre d'Assistance & Support
             </Link>
 
             {user && (user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin')) ? (
@@ -355,7 +387,7 @@ export function Navbar() {
               </Link>
             ) : (
               <Link
-                href={user ? '/profile' : '/register?role=vendor'}
+                href="/become-vendor"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block py-2 text-sm font-semibold text-amber-800 bg-amber-50/80 hover:bg-amber-100 px-3 rounded border border-amber-200 transition flex items-center justify-between"
               >

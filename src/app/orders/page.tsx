@@ -66,15 +66,24 @@ export default function OrdersPage() {
           <p className="text-xs text-brand-gray mt-1">{t('ordersSubtitle')}</p>
         </div>
 
-        <a
-          href="https://wa.me/243830634340?text=Bonjour%20Zando%20Yetu,%20j'ai%20une%20question%20concernant%20mes%20commandes"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition self-start sm:self-auto"
-        >
-          <MessageCircle className="w-4 h-4" />
-          <span>Support WhatsApp (+243 830 634 340)</span>
-        </a>
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <Link
+            href="/support"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-brand-black hover:bg-neutral-800 text-white text-xs font-semibold rounded-lg shadow-sm transition"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Ouvrir un Ticket d'Assistance</span>
+          </Link>
+          <a
+            href="https://wa.me/243830634340?text=Bonjour%20Zando%20Yetu,%20j'ai%20une%20question%20concernant%20mes%20commandes"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>WhatsApp</span>
+          </a>
+        </div>
       </div>
 
       {isLoading ? (
