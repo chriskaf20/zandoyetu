@@ -15,7 +15,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
-  const { formatPrice } = useCurrencyStore();
+  const { formatPrice, formatPriceCDF, formatPriceUSD, currency } = useCurrencyStore();
   const { t } = useLanguageStore();
   const addItem = useCartStore((s) => s.addItem);
   const isFavorite = useWishlistStore((s) => s.isFavorite(product.id));
@@ -127,6 +127,9 @@ export function ProductCard({ product }: ProductCardProps) {
                 {formatPrice(product.compare_at_price)}
               </span>
             )}
+            <span className="block text-[10px] text-neutral-400 font-medium">
+              {currency === 'USD' ? `≈ ${formatPriceCDF(product.price_usd)}` : `≈ ${formatPriceUSD(product.price_usd)}`}
+            </span>
           </div>
 
           <button

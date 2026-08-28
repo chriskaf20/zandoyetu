@@ -9,6 +9,7 @@ import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 import { useCheckoutMutation } from '@/hooks/useOrders';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { AddressForm } from '@/components/cart/AddressForm';
 import { PromoCodeBox } from '@/components/cart/PromoCodeBox';
 import { FidelityPointsBox } from '@/components/cart/FidelityPointsBox';
@@ -31,7 +32,8 @@ export default function CheckoutPage() {
     getTotalUsd,
   } = useCartStore();
 
-  const { formatPrice } = useCurrencyStore();
+  usePlatformSettings();
+  const { formatPrice, formatPriceCDF, formatPriceUSD, currency } = useCurrencyStore();
   const { t } = useLanguageStore();
   const { mutateAsync: processCheckout, isPending } = useCheckoutMutation();
 
@@ -313,8 +315,15 @@ export default function CheckoutPage() {
             </div>
 
             <div className="py-4 flex justify-between items-baseline">
-              <span className="text-xs uppercase font-bold text-brand-black">{t('total')}</span>
-              <span className="text-lg font-bold text-brand-black">{formatPrice(total)}</span>
+              <div>
+                <span className="text-xs uppercase font-bold text-brand-black">{t('total')}</span>
+                <span className="block text-[11px] text-neutral-500 font-medium">
+                  {currency === 'USD' ? `≈ ${formatPriceCDF(total)}` : `≈ ${formatPriceUSD(total)}`}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-lg font-bold text-brand-black">{formatPrice(total)}</span>
+              </div>
             </div>
 
             <button

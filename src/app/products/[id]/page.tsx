@@ -13,12 +13,14 @@ import { ImageGallery } from '@/components/product/ImageGallery';
 import { VariantSelector } from '@/components/product/VariantSelector';
 import { TrustGuard } from '@/components/product/TrustGuard';
 import { ReviewSection } from '@/components/product/ReviewSection';
+import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 
 export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { data: product, isLoading } = useProduct(id);
-  const { formatPrice } = useCurrencyStore();
+  usePlatformSettings();
+  const { formatPrice, formatPriceCDF, formatPriceUSD, currency } = useCurrencyStore();
   const addItem = useCartStore((s) => s.addItem);
   const isFavorite = useWishlistStore((s) => s.isFavorite(id));
   const toggleFavorite = useWishlistStore((s) => s.toggleFavorite);
@@ -143,20 +145,25 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             </h1>
 
             {/* Price section */}
-            <div className="flex items-baseline gap-3 my-4">
-              <span className="text-2xl font-bold text-brand-black">
-                {formatPrice(product.price_usd)}
-              </span>
-              {product.compare_at_price && product.compare_at_price > product.price_usd && (
-                <span className="text-sm text-brand-gray line-through">
-                  {formatPrice(product.compare_at_price)}
+            <div className="my-4">
+              <div className="flex items-baseline gap-3">
+                <span className="text-2xl font-bold text-brand-black">
+                  {formatPrice(product.price_usd)}
                 </span>
-              )}
-              {product.stock_count > 0 && product.stock_count <= 3 && (
-                <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                  {t('scarcityWarning', { count: product.stock_count })}
-                </span>
-              )}
+                {product.compare_at_price && product.compare_at_price > product.price_usd && (
+                  <span className="text-sm text-brand-gray line-through">
+                    {formatPrice(product.compare_at_price)}
+                  </span>
+                )}
+                {product.stock_count > 0 && product.stock_count <= 3 && (
+                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    {t('scarcityWarning', { count: product.stock_count })}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-neutral-500 font-medium mt-1">
+                {currency === 'USD' ? `Soit environ ${formatPriceCDF(product.price_usd)}` : `Soit environ ${formatPriceUSD(product.price_usd)}`}
+              </p>
             </div>
 
             {/* Description */}
