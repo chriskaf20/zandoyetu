@@ -239,13 +239,13 @@ export class VendorService {
       .insert({
         vendor_id: vendorId,
         title: titleClean,
-        title_fr: titleClean,
-        title_en: titleClean,
-        title_sw: titleClean,
+        title_fr: input.title_fr?.trim() || titleClean,
+        title_en: input.title_en?.trim() || titleClean,
+        title_sw: input.title_sw?.trim() || titleClean,
         description: descClean,
-        desc_fr: descClean,
-        desc_en: descClean,
-        desc_sw: descClean,
+        desc_fr: input.desc_fr?.trim() || descClean,
+        desc_en: input.desc_en?.trim() || descClean,
+        desc_sw: input.desc_sw?.trim() || descClean,
         category: input.category,
         price_usd: input.price_usd,
         price_cdf: priceCdf,
@@ -293,16 +293,16 @@ export class VendorService {
     if (input.title !== undefined) {
       const t = input.title.trim();
       updates.title = t;
-      updates.title_fr = t;
-      updates.title_en = t;
-      updates.title_sw = t;
+      updates.title_fr = input.title_fr?.trim() || t;
+      updates.title_en = input.title_en?.trim() || t;
+      updates.title_sw = input.title_sw?.trim() || t;
     }
     if (input.description !== undefined) {
       const d = input.description?.trim() || null;
       updates.description = d;
-      updates.desc_fr = d;
-      updates.desc_en = d;
-      updates.desc_sw = d;
+      updates.desc_fr = input.desc_fr?.trim() || d;
+      updates.desc_en = input.desc_en?.trim() || d;
+      updates.desc_sw = input.desc_sw?.trim() || d;
     }
     if (input.category !== undefined) updates.category = input.category;
     if (input.price_usd !== undefined) {
