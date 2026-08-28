@@ -98,8 +98,10 @@ export default function AdminDashboardPage() {
   });
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [merchantApps, setMerchantApps] = useState<MerchantApplication[]>([]);
+  const [storeNameRequests, setStoreNameRequests] = useState<any[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [processingAppId, setProcessingAppId] = useState<string | null>(null);
+  const [processingStoreNameId, setProcessingStoreNameId] = useState<string | null>(null);
 
   // Settings form states
   const [exchangeRateInput, setExchangeRateInput] = useState('2850');
@@ -188,7 +190,8 @@ export default function AdminDashboardPage() {
         threads,
         coupsPending,
         coupsAll,
-        banns
+        banns,
+        nameReqs
       ] = await Promise.all([
         AdminService.getPlatformMetrics(),
         AdminService.getFinancialLedger(),
@@ -204,6 +207,7 @@ export default function AdminDashboardPage() {
         AdminService.getPendingCoupons(),
         AdminService.getAllCouponsAdmin(),
         AdminService.getHeroBanners(),
+        AdminService.getStoreNameRequests(),
       ]);
 
       setMetrics(m);
@@ -218,6 +222,7 @@ export default function AdminDashboardPage() {
         setAirtelNumberInput(sett.airtel_number || '+243970000000');
       }
       setMerchantApps(apps);
+      setStoreNameRequests(nameReqs);
       setOrders(ords);
       setUsers(usrList);
       setStores(strList);
@@ -368,6 +373,44 @@ export default function AdminDashboardPage() {
       }
     } finally {
       setProcessingAppId(null);
+    }
+  };
+
+  // Store Name Requests Handlers
+  const handleApproveStoreName = async (req: any) => {
+    if (!req.id || !req.pending_name) return;
+    setProcessingStoreNameId(req.id);
+    try {
+      const ok = await AdminService.approveStoreNameChange(req.id, req.pending_name);
+      if (ok) {
+        setMessage({ type: 'success', text: `Nouveau nom "${req.pending_name}" approuvé avec succès !` });
+        setStoreNameRequests((prev) => prev.filter((r) => r.id !== req.id));
+        setStores((prev) => prev.map((s) => (s.id === req.id ? { ...s, store_name: req.pending_name, pending_name: null, pending_name_reason: null } : s)));
+      } else {
+        setMessage({ type: 'error', text: "Échec de l'approbation du changement de nom." });
+      }
+    } catch {
+      setMessage({ type: 'error', text: "Erreur lors de l'approbation." });
+    } finally {
+      setProcessingStoreNameId(null);
+    }
+  };
+
+  const handleRejectStoreName = async (storeId: string) => {
+    setProcessingStoreNameId(storeId);
+    try {
+      const ok = await AdminService.rejectStoreNameChange(storeId);
+      if (ok) {
+        setMessage({ type: 'success', text: 'Demande de changement de nom rejetée.' });
+        setStoreNameRequests((prev) => prev.filter((r) => r.id !== storeId));
+        setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, pending_name: null, pending_name_reason: null } : s)));
+      } else {
+        setMessage({ type: 'error', text: 'Échec du rejet du changement de nom.' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Erreur lors du rejet.' });
+    } finally {
+      setProcessingStoreNameId(null);
     }
   };
 
@@ -720,9 +763,9 @@ export default function AdminDashboardPage() {
         {/* 8-Tab Horizontal Scrollable Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto no-scrollbar border-t border-neutral-800/60">
           {[
-            { key: 'general', label: 'Général', icon: BarChart3, badge: merchantApps.length || undefined },
+            { key: 'general', label: 'Général', icon: BarChart3, badge: (merchantApps.length + storeNameRequests.length) || undefined },
             { key: 'orders', label: 'Commandes', icon: ShoppingBag, badge: orders.length || undefined },
-            { key: 'users', label: 'Utilisateurs', icon: Users, badge: users.length || undefined },
+            { key: 'users', label: 'Utilisateurs', icon: Users, badge: (storeNameRequests.length > 0 ? `${storeNameRequests.length} req` : undefined) },
             { key: 'moderation', label: 'Modération', icon: Package, badge: products.length || undefined },
             { key: 'accounting', label: 'Comptabilité', icon: Wallet, badge: awaitingPayments.length || undefined },
             { key: 'support', label: 'Support', icon: MessageSquare, badge: supportThreads.filter((t) => t.status !== 'closed').length || undefined },
@@ -1033,6 +1076,82 @@ export default function AdminDashboardPage() {
                             >
                               <X className="w-3.5 h-3.5" />
                               Refuser
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. Demandes de Changement de Nom Commercial */}
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Edit className="w-4 h-4 text-blue-400" />
+                      <h2 className="text-xs font-bold uppercase tracking-wider text-white">
+                        Demandes de Changement de Nom Commercial ({storeNameRequests.length})
+                      </h2>
+                    </div>
+                    {storeNameRequests.length > 0 && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        {storeNameRequests.length} en attente
+                      </span>
+                    )}
+                  </div>
+
+                  {storeNameRequests.length === 0 ? (
+                    <div className="py-8 text-center text-neutral-400 text-xs flex flex-col items-center gap-1">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-400/60" />
+                      <p>Aucune demande de modification de nom de boutique en attente.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {storeNameRequests.map((req) => (
+                        <div key={req.id} className="p-4 bg-neutral-950 rounded-xl border border-blue-900/40 space-y-3 shadow-sm">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-[10px] text-neutral-500 uppercase font-bold">Nom Actuel</p>
+                              <p className="text-xs font-semibold text-neutral-400 line-through">{req.store_name}</p>
+                              <p className="text-[10px] text-blue-400 uppercase font-bold mt-1.5">Nouveau Nom Demandé</p>
+                              <p className="text-sm font-bold text-white tracking-wide">{req.pending_name}</p>
+                            </div>
+                            <span className="text-[10px] text-neutral-500 font-mono">
+                              {req.updated_at ? new Date(req.updated_at).toLocaleDateString('fr-FR') : 'En attente'}
+                            </span>
+                          </div>
+
+                          {req.pending_name_reason && (
+                            <div className="p-2.5 bg-neutral-900/80 rounded-lg border border-neutral-800 text-[11px] text-neutral-300">
+                              <span className="text-neutral-500 font-semibold block text-[10px] uppercase mb-0.5">Raison invoquée :</span>
+                              "{req.pending_name_reason}"
+                            </div>
+                          )}
+
+                          <div className="text-[11px] text-neutral-400 space-y-0.5">
+                            <p><span className="text-neutral-500">Boutique ID :</span> <span className="font-mono text-[10px]">{req.id.slice(0, 8)}...</span></p>
+                            <p><span className="text-neutral-500">Vendeur :</span> {req.users?.full_name || 'Vendeur'}</p>
+                            {req.users?.phone && <p><span className="text-neutral-500">Téléphone :</span> {req.users.phone}</p>}
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-2 border-t border-neutral-800">
+                            <button
+                              type="button"
+                              onClick={() => handleApproveStoreName(req)}
+                              disabled={processingStoreNameId === req.id}
+                              className="flex-1 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold uppercase rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+                            >
+                              {processingStoreNameId === req.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                              Approuver le Nom
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRejectStoreName(req.id)}
+                              disabled={processingStoreNameId === req.id}
+                              className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold uppercase rounded-lg transition flex items-center justify-center gap-1 disabled:opacity-50"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              Rejeter
                             </button>
                           </div>
                         </div>
@@ -1408,6 +1527,43 @@ export default function AdminDashboardPage() {
 
                           {s.description && (
                             <p className="text-xs text-neutral-400 line-clamp-2">{s.description}</p>
+                          )}
+
+                          {/* Pending Name Request Alert on Store Card */}
+                          {s.pending_name && (
+                            <div className="p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-blue-400" />
+                                  Changement de nom demandé
+                                </span>
+                              </div>
+                              <p className="text-xs text-white">
+                                Nouveau nom : <strong className="text-blue-300">"{s.pending_name}"</strong>
+                              </p>
+                              {s.pending_name_reason && (
+                                <p className="text-[10px] text-neutral-400 italic">Raison : "{s.pending_name_reason}"</p>
+                              )}
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveStoreName(s)}
+                                  disabled={processingStoreNameId === s.id}
+                                  className="flex-1 py-1 bg-blue-500 hover:bg-blue-600 text-white text-[10px] font-bold uppercase rounded transition flex items-center justify-center gap-1 disabled:opacity-50"
+                                >
+                                  {processingStoreNameId === s.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                  Approuver "{s.pending_name}"
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectStoreName(s.id)}
+                                  disabled={processingStoreNameId === s.id}
+                                  className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-bold uppercase rounded transition disabled:opacity-50"
+                                >
+                                  Rejeter
+                                </button>
+                              </div>
+                            </div>
                           )}
 
                           <div className="pt-2 border-t border-neutral-800 flex items-center justify-between">
