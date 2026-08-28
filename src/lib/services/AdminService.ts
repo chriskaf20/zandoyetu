@@ -1106,25 +1106,55 @@ export class AdminService {
     airtel_number?: string | null;
     mpesa_number?: string | null;
     orange_number?: string | null;
-  }): Promise<boolean> {
+  }): Promise<{ success: boolean; error?: string }> {
     try {
-      const { error } = await (supabase
+      const { data: existing, error: selectError } = await supabase
         .from('platform_settings')
-        .update({
-          exchange_rate: settings.exchange_rate,
-          commission_rate: settings.commission_rate,
-          mobile_money_active: settings.mobile_money_active,
-          airtel_number: settings.airtel_number,
-          mpesa_number: settings.mpesa_number,
-          orange_number: settings.orange_number,
-        })
-        .eq('id', 1) as any);
+        .select('id')
+        .limit(1)
+        .maybeSingle();
 
-      if (error) throw error;
-      return true;
-    } catch (err) {
+      if (selectError) {
+        console.error('[AdminService] Error checking platform settings existence:', selectError);
+      }
+
+      let error;
+      if (existing?.id) {
+        const res = await (supabase
+          .from('platform_settings')
+          .update({
+            exchange_rate: settings.exchange_rate,
+            commission_rate: settings.commission_rate,
+            mobile_money_active: settings.mobile_money_active,
+            airtel_number: settings.airtel_number || null,
+            mpesa_number: settings.mpesa_number || null,
+            orange_number: settings.orange_number || null,
+          } as any)
+          .eq('id', existing.id) as any);
+        error = res.error;
+      } else {
+        const res = await (supabase
+          .from('platform_settings')
+          .insert({
+            id: 1,
+            exchange_rate: settings.exchange_rate,
+            commission_rate: settings.commission_rate,
+            mobile_money_active: settings.mobile_money_active,
+            airtel_number: settings.airtel_number || null,
+            mpesa_number: settings.mpesa_number || null,
+            orange_number: settings.orange_number || null,
+          } as any) as any);
+        error = res.error;
+      }
+
+      if (error) {
+        console.error('[AdminService] Supabase error saving settings:', error);
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
       console.error('[AdminService] Error saving platform settings:', err);
-      return false;
+      return { success: false, error: err.message || 'Erreur inconnue' };
     }
   }
 

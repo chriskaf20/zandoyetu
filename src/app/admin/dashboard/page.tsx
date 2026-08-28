@@ -306,20 +306,30 @@ export default function AdminDashboardPage() {
     try {
       const rateVal = parseFloat(exchangeRateInput) || 2850;
       const commVal = parseFloat(commissionRateInput) || 10;
-      const ok = await AdminService.savePlatformSettings({
+      const res = await AdminService.savePlatformSettings({
         exchange_rate: rateVal,
         commission_rate: commVal,
         mobile_money_active: mobileMoneyActive ? 1 : 0,
-        mpesa_number: mpesaNumberInput,
-        orange_number: orangeNumberInput,
-        airtel_number: airtelNumberInput,
+        mpesa_number: mpesaNumberInput.trim() || null,
+        orange_number: orangeNumberInput.trim() || null,
+        airtel_number: airtelNumberInput.trim() || null,
       });
 
-      if (ok) {
-        setMessage({ type: 'success', text: 'Paramètres financiers et passerelles sauvegardés.' });
+      if (res.success) {
+        setMessage({ type: 'success', text: 'Paramètres financiers et passerelles sauvegardés avec succès !' });
+        setSettings((prev) => ({
+          ...(prev || { id: 1 }),
+          id: prev?.id || 1,
+          exchange_rate: rateVal,
+          commission_rate: commVal,
+          mobile_money_active: mobileMoneyActive ? 1 : 0,
+          mpesa_number: mpesaNumberInput.trim() || null,
+          orange_number: orangeNumberInput.trim() || null,
+          airtel_number: airtelNumberInput.trim() || null,
+        }));
         loadData(true);
       } else {
-        setMessage({ type: 'error', text: 'Échec de la sauvegarde des paramètres.' });
+        setMessage({ type: 'error', text: res.error || 'Échec de la sauvegarde des paramètres.' });
       }
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Erreur inconnue.' });
