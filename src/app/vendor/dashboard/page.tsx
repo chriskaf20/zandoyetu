@@ -503,10 +503,10 @@ export default function VendorDashboardPage() {
     if (!file) return;
     setUploadingImage(true);
     try {
-      const url = await VendorService.uploadImage(file);
+      const url = await VendorService.uploadImage(file, user?.id);
       setProductForm(f => ({ ...f, images_urls: [...f.images_urls, url] }));
     } catch (err: any) {
-      showMessage('error', 'Erreur lors du téléchargement de l\'image.');
+      showMessage('error', err.message || 'Erreur lors du téléchargement de l\'image.');
     } finally {
       setUploadingImage(false);
     }

@@ -446,16 +446,31 @@ export class VendorService {
   // ── Image Upload ───────────────────────────────────────────────────────────
 
   /**
-   * Upload image to Supabase Storage (product-images bucket) with local data URL fallback
+   * Upload image to Supabase Storage (product-images bucket) with validation and local data URL fallback
    */
-  static async uploadImage(file: File): Promise<string> {
-    const fileExt = file.name.split('.').pop();
+  static async uploadImage(file: File, vendorId?: string): Promise<string> {
+    // 1. Enforce allowed image MIME types
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedMimeTypes.includes(file.type)) {
+      throw new Error('Format de fichier non autorisé. Formats acceptés : JPEG, PNG, WebP, GIF.');
+    }
+
+    // 2. Enforce max file size limit (5MB)
+    const MAX_SIZE_BYTES = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE_BYTES) {
+      throw new Error('La taille de l\'image dépasse la limite autorisée de 5 Mo.');
+    }
+
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-    const filePath = `products/${fileName}`;
+    const filePath = vendorId ? `products/${vendorId}/${fileName}` : `products/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
       .from('product-images')
-      .upload(filePath, file);
+      .upload(filePath, file, {
+        contentType: file.type,
+        upsert: false,
+      });
 
     if (uploadError) {
       console.warn('[VendorService] Storage bucket upload failed, using data URL fallback:', uploadError);
