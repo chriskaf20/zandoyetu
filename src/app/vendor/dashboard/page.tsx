@@ -557,16 +557,23 @@ export default function VendorDashboardPage() {
 
   const handleRequestNameChange = async () => {
     if (!store || !pendingNameInput.trim()) return;
+    if (pendingNameInput.trim() === store.store_name) {
+      showMessage('error', 'Le nom proposé doit être différent du nom actuel de la boutique.');
+      return;
+    }
     setSaving(true);
     try {
       await VendorService.requestStoreNameChange(store.id, pendingNameInput, pendingNameReason);
+      const proposed = pendingNameInput.trim();
+      const reason = pendingNameReason.trim();
       setNameChangeModalOpen(false);
       setPendingNameInput('');
       setPendingNameReason('');
+      setStore(prev => prev ? { ...prev, pending_name: proposed, pending_name_reason: reason } : prev);
       showMessage('success', 'Demande de changement de nom soumise. En attente d\'approbation admin.');
       await loadData();
     } catch (err: any) {
-      showMessage('error', err.message || 'Erreur.');
+      showMessage('error', err.message || 'Erreur lors de la soumission.');
     } finally {
       setSaving(false);
     }
@@ -1052,7 +1059,7 @@ export default function VendorDashboardPage() {
                 <h3 className="text-xs font-bold text-brand-black uppercase tracking-widest">Nom Commercial</h3>
                 <button
                   id="request-name-change-btn"
-                  onClick={() => { setPendingNameInput(store?.store_name || ''); setNameChangeModalOpen(true); }}
+                  onClick={() => { setPendingNameInput(''); setPendingNameReason(''); setNameChangeModalOpen(true); }}
                   className="text-xs font-semibold text-brand-black underline underline-offset-2"
                 >
                   Demander modification
