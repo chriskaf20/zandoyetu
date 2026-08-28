@@ -37,6 +37,8 @@ import {
   ShoppingCart,
   AlertTriangle,
   Info,
+  Sparkles,
+  Wand2,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { VendorService, CreateProductInput, VendorCoupon, VendorFinancials } from '@/lib/services/VendorService';
@@ -316,6 +318,11 @@ export default function VendorDashboardPage() {
   // ── Delete confirmation ──
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // ── Gemini Vision AI Auto-Fill ──
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const aiFileInputRef = useRef<HTMLInputElement>(null);
+
   // ─── Data Loading ────────────────────────────────────────────────────────
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -509,6 +516,75 @@ export default function VendorDashboardPage() {
       showMessage('error', err.message || 'Erreur lors du téléchargement de l\'image.');
     } finally {
       setUploadingImage(false);
+    }
+  };
+
+  // ── Gemini Vision AI: Analyze image and auto-fill product fields ──────────
+  const handleAiAnalyzeImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAiAnalyzing(true);
+    setAiError(null);
+
+    try {
+      // 1. Upload image to Supabase Storage for persistent URL
+      const imageUrl = await VendorService.uploadImage(file, user?.id);
+      setProductForm(f => ({ ...f, images_urls: f.images_urls.includes(imageUrl) ? f.images_urls : [imageUrl, ...f.images_urls] }));
+
+      // 2. Read file as base64 for Gemini Vision
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // 3. Call Gemini Vision API
+      const res = await fetch('/api/ai/analyze-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Analyse IA échouée');
+      }
+
+      const d = json.data;
+      const suggestedPriceUsd = Number(d.suggested_price_usd) || 0;
+
+      // 4. Auto-populate form fields
+      setProductForm(f => ({
+        ...f,
+        title: d.title || d.title_fr || f.title,
+        title_fr: d.title_fr || d.title || f.title_fr,
+        title_en: d.title_en || f.title_en,
+        title_sw: d.title_sw || f.title_sw,
+        description: d.description || d.desc_fr || f.description,
+        desc_fr: d.desc_fr || d.description || f.desc_fr,
+        desc_en: d.desc_en || f.desc_en,
+        desc_sw: d.desc_sw || f.desc_sw,
+        category: d.category || f.category,
+        target_gender: (['women', 'men', 'mixte'].includes(d.target_gender) ? d.target_gender : f.target_gender) as 'women' | 'men' | 'mixte',
+        price_usd: suggestedPriceUsd > 0 ? suggestedPriceUsd : f.price_usd,
+        price_cdf: suggestedPriceUsd > 0 ? Math.round(suggestedPriceUsd * exchangeRate) : f.price_cdf,
+        sizes: Array.isArray(d.sizes) && d.sizes.length > 0 ? d.sizes : f.sizes,
+        colors: Array.isArray(d.colors) && d.colors.length > 0 ? d.colors : f.colors,
+        material_info: d.material_info || f.material_info,
+        security_specs: d.security_specs || f.security_specs,
+      }));
+
+      showMessage('success', '✨ Fiche article remplie automatiquement par Gemini Vision !');
+      // Jump to Info tab to let vendor review fields
+      setProductFormTab('info');
+    } catch (err: any) {
+      setAiError(err.message || 'Erreur lors de l\'analyse IA.');
+      showMessage('error', err.message || 'Erreur lors de l\'analyse IA.');
+    } finally {
+      setAiAnalyzing(false);
+      if (aiFileInputRef.current) aiFileInputRef.current.value = '';
     }
   };
 
@@ -1746,6 +1822,65 @@ export default function VendorDashboardPage() {
                 {/* ── Media Tab ── */}
                 {productFormTab === 'media' && (
                   <div className="space-y-4">
+
+                    {/* ✨ AI Auto-Fill Banner */}
+                    <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center">
+                          <Sparkles className="w-5 h-5 text-violet-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-violet-900">✨ Remplissage Automatique par IA</p>
+                          <p className="text-[11px] text-violet-600 mt-0.5 leading-relaxed">
+                            Uploadez une photo de votre article — Gemini Vision analysera l'image et remplira automatiquement le titre, la description, la catégorie, le genre, les tailles, couleurs, matière et le prix suggéré.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <input
+                          ref={aiFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={handleAiAnalyzeImage}
+                        />
+                        <button
+                          type="button"
+                          id="ai-autofill-btn"
+                          onClick={() => aiFileInputRef.current?.click()}
+                          disabled={aiAnalyzing}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white text-[11px] font-bold uppercase tracking-wider rounded-lg transition-colors shadow-sm w-full justify-center"
+                        >
+                          {aiAnalyzing ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Analyse Gemini Vision en cours…</span>
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="w-4 h-4" />
+                              <span>Analyser une image avec l'IA</span>
+                            </>
+                          )}
+                        </button>
+
+                        {aiError && (
+                          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-red-600">
+                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>{aiError}</span>
+                          </div>
+                        )}
+
+                        {aiAnalyzing && (
+                          <div className="mt-3 flex items-center gap-2 text-[11px] text-violet-600 bg-violet-50 rounded-lg px-3 py-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Gemini Vision analyse votre produit et génère la fiche article complète…</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     <p className="text-[10px] text-brand-gray">La première image est l'image principale (Hero). Ajoutez jusqu'à 8 images.</p>
 
                     {/* Image grid */}
@@ -1778,11 +1913,11 @@ export default function VendorDashboardPage() {
                         type="button"
                         id="upload-image-btn"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={uploadingImage}
+                        disabled={uploadingImage || aiAnalyzing}
                         className="flex items-center gap-2 px-4 py-2 border border-brand-border text-xs font-semibold rounded-lg hover:bg-brand-lightGray transition-colors disabled:opacity-50"
                       >
                         {uploadingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                        {uploadingImage ? 'Téléchargement…' : 'Uploader une photo'}
+                        {uploadingImage ? 'Téléchargement…' : 'Ajouter une photo (sans IA)'}
                       </button>
                     </div>
 

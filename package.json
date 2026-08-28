@@ -11,6 +11,7 @@
     "gen:types": "node scripts/generate-types.mjs"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "@splinetool/react-spline": "^4.1.0",
     "@splinetool/runtime": "^1.12.98",
     "@supabase/ssr": "^0.5.2",

@@ -13,34 +13,35 @@ const inter = Inter({
 });
 
 export const viewport: Viewport = {
-  themeColor: '#111111',
+  themeColor: '#0a0a0a',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: 'cover',
 };
 
 export const metadata: Metadata = {
-  title: 'ZANDO YETU | Plateforme Mode & Marketplace de Lubumbashi',
-  description: 'Achetez et vendez des vêtements, chaussures et accessoires de mode à Lubumbashi avec livraison express et paiement sécurisé à la réception.',
+  title: 'Zando Yetu - Marketplace',
+  description: 'La première place de marché dédiée à la mode et aux créateurs à Lubumbashi, RDC.',
   keywords: ['Zando Yetu', 'Mode Lubumbashi', 'Boutique en ligne RDC', 'Vêtements Lubumbashi', 'Marketplace Katanga'],
-  manifest: '/manifest.json',
-  icons: {
-    icon: '/icon.svg',
-    apple: '/icon.svg',
-  },
+  manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'Zando Yetu',
+  },
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/apple-touch-icon.png',
+    shortcut: '/icon-192.png',
   },
   applicationName: 'Zando Yetu',
   openGraph: {
     title: 'ZANDO YETU | Lubumbashi Fashion Hub',
     description: 'La première place de marché dédiée à la mode et aux créateurs à Lubumbashi.',
     type: 'website',
-    locale: 'fr_FR',
+    locale: 'fr_CD',
   },
 };
 
