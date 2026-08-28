@@ -39,6 +39,8 @@ import {
   Info,
   Sparkles,
   Wand2,
+  Eye,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { VendorService, CreateProductInput, VendorCoupon, VendorFinancials } from '@/lib/services/VendorService';
@@ -115,8 +117,55 @@ function parseSizes(sizesJson: string | null): string[] {
   try { return JSON.parse(sizesJson); } catch { return []; }
 }
 
+function parseColors(colorsJson: any): string[] {
+  if (!colorsJson) return [];
+  if (Array.isArray(colorsJson)) return colorsJson;
+  try {
+    const parsed = typeof colorsJson === 'string' ? JSON.parse(colorsJson) : colorsJson;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+const COLOR_HEX_MAP: Record<string, string> = {
+  noir: '#171717',
+  black: '#171717',
+  blanc: '#FFFFFF',
+  white: '#FFFFFF',
+  rouge: '#EF4444',
+  red: '#EF4444',
+  bleu: '#3B82F6',
+  blue: '#3B82F6',
+  vert: '#10B981',
+  green: '#10B981',
+  jaune: '#F59E0B',
+  yellow: '#F59E0B',
+  doré: '#D4AF37',
+  gold: '#D4AF37',
+  argenté: '#9CA3AF',
+  silver: '#9CA3AF',
+  rose: '#EC4899',
+  pink: '#EC4899',
+  beige: '#D4B996',
+  marron: '#78350F',
+  brown: '#78350F',
+  gris: '#6B7280',
+  gray: '#6B7280',
+  grey: '#6B7280',
+  orange: '#F97316',
+  violet: '#8B5CF6',
+  purple: '#8B5CF6',
+};
+
+function getColorHex(name: string): string | null {
+  if (!name) return null;
+  const key = name.trim().toLowerCase();
+  return COLOR_HEX_MAP[key] || null;
+}
+
 function formatCDF(n: number) {
-  return Math.round(n).toLocaleString('fr-CD') + ' CDF';
+  return Math.round(n).toLocaleString('fr-FR') + ' CDF';
 }
 
 function formatUSD(n: number) {
@@ -834,96 +883,231 @@ export default function VendorDashboardPage() {
                   const isLowStock = product.stock_count > 0 && product.stock_count <= 3;
                   const isOutOfStock = product.stock_count <= 0;
                   const sizes = parseSizes(product.sizes_json);
+                  const colors = parseColors(product.colors_json);
                   const priceCdf = product.price_cdf || Math.round(product.price_usd * exchangeRate);
+                  const discountPercent = product.compare_at_price && product.compare_at_price > product.price_usd
+                    ? Math.round(((product.compare_at_price - product.price_usd) / product.compare_at_price) * 100)
+                    : null;
+                  const genderLabel = product.target_gender === 'women' ? 'Femme' : product.target_gender === 'men' ? 'Homme' : 'Mixte';
 
                   return (
-                    <div key={product.id} className={`bg-white border rounded-xl overflow-hidden flex flex-col shadow-card hover:shadow-hover transition-shadow ${product.status === 'archived' ? 'opacity-60' : ''}`} style={{ borderColor: '#E5E5E5' }}>
-                      {/* Image */}
-                      <div className="relative aspect-square bg-brand-lightGray overflow-hidden">
+                    <div
+                      key={product.id}
+                      className={`group bg-white border border-neutral-200/90 rounded-2xl overflow-hidden flex flex-col shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 ${
+                        product.status === 'archived' ? 'opacity-65' : ''
+                      }`}
+                    >
+                      {/* Image container with subtle zoom */}
+                      <div className="relative aspect-square bg-gradient-to-b from-neutral-100 to-neutral-50 overflow-hidden">
                         {product.images_urls[0] ? (
-                          <Image src={product.images_urls[0]} alt={product.title} fill className="object-cover" sizes="300px" unoptimized />
+                          <Image
+                            src={product.images_urls[0]}
+                            alt={product.title}
+                            fill
+                            className="object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                            unoptimized
+                          />
                         ) : (
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <Package className="w-10 h-10 text-brand-border" />
+                            <Package className="w-10 h-10 text-neutral-300" />
                           </div>
                         )}
-                        {product.images_urls.length > 1 && (
-                          <span className="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">+{product.images_urls.length - 1}</span>
-                        )}
-                        {/* Status badge overlay */}
-                        <div className="absolute top-2 left-2">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${
-                            product.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
-                            product.status === 'archived' ? 'bg-neutral-200 text-neutral-600' :
-                            'bg-red-100 text-red-700'
-                          }`}>
+
+                        {/* Top-Left: Glassmorphic Status Pill */}
+                        <div className="absolute top-2.5 left-2.5">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wider uppercase backdrop-blur-md shadow-xs border ${
+                              product.status === 'active'
+                                ? 'bg-white/95 text-emerald-800 border-emerald-200/60'
+                                : product.status === 'archived'
+                                ? 'bg-neutral-800/90 text-white border-neutral-700'
+                                : 'bg-rose-500/90 text-white border-rose-400'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                product.status === 'active'
+                                  ? 'bg-emerald-500 animate-pulse'
+                                  : product.status === 'archived'
+                                  ? 'bg-neutral-400'
+                                  : 'bg-white'
+                              }`}
+                            />
                             {product.status === 'active' ? 'ACTIF' : product.status === 'archived' ? 'ARCHIVÉ' : 'SUSPENDU'}
                           </span>
                         </div>
+
+                        {/* Top-Right: Image Counter & Storefront Link */}
+                        <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                          {product.images_urls.length > 1 && (
+                            <span className="bg-black/70 backdrop-blur-md text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                              +{product.images_urls.length - 1}
+                            </span>
+                          )}
+                          <a
+                            href={`/products/${product.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Voir l'article sur la boutique"
+                            className="w-7 h-7 rounded-full bg-white/95 backdrop-blur-md text-neutral-800 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-white hover:scale-110 hover:text-black shadow-md"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+
+                        {/* Discount floating badge if any */}
+                        {discountPercent && (
+                          <div className="absolute bottom-2.5 left-2.5">
+                            <span className="bg-rose-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md shadow-xs">
+                              -{discountPercent}%
+                            </span>
+                          </div>
+                        )}
                       </div>
 
-                      {/* Body */}
-                      <div className="p-3 flex flex-col gap-2 flex-1">
-                        <div>
-                          <p className="text-xs font-bold text-brand-black leading-tight line-clamp-2">{product.title}</p>
-                          {product.category && (
-                            <p className="text-[10px] text-brand-gray mt-0.5 uppercase tracking-wide">{product.category}</p>
+                      {/* Card Body */}
+                      <div className="p-3.5 flex flex-col gap-2.5 flex-1">
+                        {/* Category & Gender Pill Tag */}
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="bg-neutral-100 text-neutral-700 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md truncate max-w-[70%]">
+                            {product.category || 'Général'}
+                          </span>
+                          <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                            {genderLabel}
+                          </span>
+                        </div>
+
+                        {/* Product Title */}
+                        <p className="text-xs font-bold text-neutral-900 leading-snug line-clamp-2 min-h-[2rem] group-hover:text-amber-700 transition-colors">
+                          {product.title}
+                        </p>
+
+                        {/* Pricing Block */}
+                        <div className="bg-neutral-50/90 rounded-xl p-2 border border-neutral-100 space-y-1">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-base font-black text-neutral-950 tracking-tight">
+                              {formatUSD(product.price_usd)}
+                            </span>
+                            {product.compare_at_price && product.compare_at_price > product.price_usd && (
+                              <span className="text-xs text-neutral-400 line-through font-medium">
+                                {formatUSD(product.compare_at_price)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-amber-700 tracking-tight">
+                              ≈ {formatCDF(priceCdf)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Stock Status Pill */}
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold self-start ${
+                            isOutOfStock
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : isLowStock
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          }`}
+                        >
+                          {isOutOfStock ? (
+                            <AlertTriangle className="w-3 h-3 text-rose-500" />
+                          ) : (
+                            <Check className="w-3 h-3 text-emerald-600" />
                           )}
+                          <span>
+                            {isOutOfStock
+                              ? 'Rupture de stock'
+                              : isLowStock
+                              ? `Stock faible (${product.stock_count})`
+                              : `${product.stock_count} en stock`}
+                          </span>
                         </div>
 
-                        {/* Pricing */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-brand-black">{formatUSD(product.price_usd)}</span>
-                          {product.compare_at_price && (
-                            <span className="text-xs text-brand-gray line-through">{formatUSD(product.compare_at_price)}</span>
-                          )}
-                          <span className="text-[10px] text-brand-gray ml-auto">{formatCDF(priceCdf)}</span>
-                        </div>
+                        {/* Sizes & Colors row */}
+                        {(sizes.length > 0 || colors.length > 0) && (
+                          <div className="flex flex-col gap-1.5 pt-1">
+                            {/* Sizes */}
+                            {sizes.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1">
+                                {sizes.slice(0, 5).map((s) => (
+                                  <span
+                                    key={s}
+                                    className="text-[9px] font-bold px-1.5 py-0.5 bg-white border border-neutral-200 rounded text-neutral-600 shadow-2xs"
+                                  >
+                                    {s}
+                                  </span>
+                                ))}
+                                {sizes.length > 5 && (
+                                  <span className="text-[9px] font-medium text-neutral-400">
+                                    +{sizes.length - 5}
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
-                        {/* Stock pill */}
-                        <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold self-start ${
-                          isOutOfStock ? 'bg-red-100 text-red-700' :
-                          isLowStock ? 'bg-amber-100 text-amber-700' :
-                          'bg-emerald-50 text-emerald-700'
-                        }`}>
-                          {isOutOfStock ? <AlertTriangle className="w-2.5 h-2.5" /> : <Check className="w-2.5 h-2.5" />}
-                          {isOutOfStock ? 'RUPTURE' : isLowStock ? `FAIBLE (${product.stock_count})` : `${product.stock_count} EN STOCK`}
-                        </div>
-
-                        {/* Sizes row */}
-                        {sizes.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {sizes.slice(0, 4).map(s => (
-                              <span key={s} className="text-[9px] font-semibold px-1.5 py-0.5 border border-brand-border rounded text-brand-gray">{s}</span>
-                            ))}
-                            {sizes.length > 4 && <span className="text-[9px] text-brand-gray">+{sizes.length - 4}</span>}
+                            {/* Color dots */}
+                            {colors.length > 0 && (
+                              <div className="flex items-center gap-1.5">
+                                {colors.slice(0, 5).map((col) => {
+                                  const hex = getColorHex(col);
+                                  return hex ? (
+                                    <span
+                                      key={col}
+                                      title={col}
+                                      className="w-3 h-3 rounded-full border border-neutral-300 shadow-2xs"
+                                      style={{ backgroundColor: hex }}
+                                    />
+                                  ) : (
+                                    <span
+                                      key={col}
+                                      className="text-[9px] font-medium text-neutral-500 px-1 bg-neutral-100 rounded"
+                                    >
+                                      {col}
+                                    </span>
+                                  );
+                                })}
+                                {colors.length > 5 && (
+                                  <span className="text-[9px] font-medium text-neutral-400">
+                                    +{colors.length - 5}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
 
-                        {/* Actions */}
-                        <div className="flex gap-2 mt-auto pt-2 border-t border-brand-border">
+                        {/* Card Action Buttons */}
+                        <div className="flex items-center gap-2 mt-auto pt-3 border-t border-neutral-100">
                           <button
                             id={`edit-product-${product.id}`}
                             onClick={() => openEditProduct(product)}
-                            className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-brand-lightGray text-brand-black text-[10px] font-bold uppercase tracking-wide rounded hover:bg-neutral-200 transition-colors"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-neutral-900 text-white hover:bg-neutral-800 text-[11px] font-bold uppercase tracking-wider rounded-xl transition-all shadow-xs active:scale-[0.98]"
                           >
-                            <Edit2 className="w-3 h-3" /> Modifier
+                            <Edit2 className="w-3 h-3" />
+                            <span>Modifier</span>
                           </button>
                           <button
                             id={`archive-product-${product.id}`}
                             onClick={() => handleArchiveProduct(product)}
-                            title={product.status === 'archived' ? 'Restaurer' : 'Archiver'}
-                            className="p-1.5 border border-brand-border rounded hover:bg-brand-lightGray transition-colors"
+                            title={product.status === 'archived' ? 'Restaurer au catalogue' : 'Archiver l\'article'}
+                            className="p-2 border border-neutral-200 rounded-xl text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 transition-colors"
                           >
-                            {product.status === 'archived' ? <RotateCcw className="w-3 h-3 text-emerald-600" /> : <Archive className="w-3 h-3 text-brand-gray" />}
+                            {product.status === 'archived' ? (
+                              <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Archive className="w-3.5 h-3.5 text-neutral-500" />
+                            )}
                           </button>
                           <button
                             id={`delete-product-${product.id}`}
                             onClick={() => setDeleteConfirmId(product.id)}
                             title="Supprimer définitivement"
-                            className="p-1.5 border border-brand-border rounded hover:bg-red-50 transition-colors"
+                            className="p-2 border border-neutral-200 rounded-xl text-rose-500 hover:bg-rose-50 hover:border-rose-200 transition-colors"
                           >
-                            <Trash2 className="w-3 h-3 text-red-500" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
