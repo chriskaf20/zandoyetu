@@ -169,6 +169,7 @@ export interface StoreFavorite {
 export interface HeroBanner {
   id: string;
   title: string;
+  subtitle?: string | null;
   media_url: string;
   click_action_route: string | null;
   sort_order: number;

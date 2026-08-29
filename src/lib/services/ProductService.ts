@@ -160,4 +160,25 @@ export class ProductService {
 
     return (data || []).map(this.mapRowToProduct);
   }
+
+  /**
+   * Strictly fetch trending products (is_trending = true AND status = 'active').
+   * Returns an empty array if none are marked trending.
+   */
+  static async getTrendingProducts(limit = 10): Promise<Product[]> {
+    const { data, error } = await (supabase
+      .from('products')
+      .select('*, users:vendor_id(id, full_name, phone)')
+      .eq('status', 'active')
+      .eq('is_trending', true)
+      .order('local_updated_at', { ascending: false })
+      .limit(limit) as any);
+
+    if (error) {
+      console.error('[ProductService] Error fetching trending products:', error);
+      return [];
+    }
+
+    return (data || []).map(this.mapRowToProduct);
+  }
 }

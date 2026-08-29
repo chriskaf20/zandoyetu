@@ -43,14 +43,14 @@ export function ProductCard({ product }: ProductCardProps) {
   };
 
   return (
-    <div className="group relative flex flex-col bg-white border border-brand-border rounded overflow-hidden hover:shadow-hover transition duration-300">
-      {/* 4:5 Portrait Image Container */}
-      <Link href={`/products/${product.id}`} className="block relative w-full aspect-[4/5] bg-brand-lightGray overflow-hidden">
+    <div className="group relative flex flex-col bg-white border border-brand-border/80 rounded-2xl overflow-hidden shadow-xs hover:shadow-lg transition-all duration-300">
+      {/* 3:4 Portrait Image Container (Standard Shein E-Commerce Aspect Ratio) */}
+      <Link href={`/products/${product.id}`} className="block relative w-full aspect-[3/4] bg-neutral-900 overflow-hidden">
         <Image
           src={img}
           alt={product.title}
           fill
-          className="object-cover object-center group-hover:scale-105 transition duration-500"
+          className="object-cover object-center w-full h-full group-hover:scale-105 transition-transform duration-500 ease-out"
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
         />
 

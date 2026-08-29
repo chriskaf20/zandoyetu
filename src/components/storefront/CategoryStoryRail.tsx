@@ -89,18 +89,18 @@ export function CategoryStoryRail({
   };
 
   return (
-    <section className="hidden md:block relative my-6 sm:my-8 py-2">
-      <div className="flex items-center justify-between mb-3 px-1">
-        <h2 className="font-serif text-xs sm:text-sm font-bold text-brand-black uppercase tracking-wider flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-amber-500" />
-          <span>Rayons & Collections Tendances Lubumbashi</span>
+    <section className="relative my-4 sm:my-6 py-1">
+      <div className="flex items-center justify-between mb-2 sm:mb-3 px-1">
+        <h2 className="font-serif text-xs sm:text-sm font-bold text-brand-black uppercase tracking-wider flex items-center gap-1.5 sm:gap-2">
+          <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
+          <span>Rayons & Collections Tendances</span>
         </h2>
-        <span className="text-[11px] text-brand-gray hidden sm:inline">
+        <span className="text-[10px] sm:text-[11px] text-brand-gray hidden sm:inline">
           Glissez pour filtrer le catalogue
         </span>
       </div>
 
-      {/* Navigation Arrow Left */}
+      {/* Navigation Arrow Left (Desktop) */}
       <button
         type="button"
         onClick={() => scroll('left')}
@@ -113,7 +113,7 @@ export function CategoryStoryRail({
       {/* Horizontal Scroll Story Rail */}
       <div
         ref={scrollRef}
-        className="flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar py-2 px-1 scroll-smooth"
+        className="flex items-center gap-3 sm:gap-5 overflow-x-auto no-scrollbar py-1 px-1 scroll-smooth"
       >
         {ORDERED_STORY_CATEGORIES.map((item) => {
           const isSelected = selectedCategory === item.slug;
@@ -123,14 +123,14 @@ export function CategoryStoryRail({
               key={item.slug}
               type="button"
               onClick={() => handleCategoryClick(item.slug)}
-              className="flex flex-col items-center gap-2 flex-shrink-0 group focus:outline-none min-w-[64px]"
+              className="flex flex-col items-center gap-1 sm:gap-1.5 flex-shrink-0 group focus:outline-none min-w-[56px] sm:min-w-[68px]"
             >
               {/* Circular Story Bubble */}
               <div
-                className={`relative w-16 h-16 sm:w-20 sm:h-20 rounded-full p-0.5 transition duration-300 ${
+                className={`relative w-13 h-13 sm:w-16 sm:h-16 md:w-18 md:h-18 rounded-full p-0.5 transition duration-300 ${
                   isSelected
                     ? 'ring-2 ring-brand-black ring-offset-2 scale-105 shadow-md'
-                    : 'ring-1 ring-brand-border hover:ring-amber-500 group-hover:scale-105 shadow-sm'
+                    : 'ring-1 ring-brand-border hover:ring-amber-500 group-hover:scale-105 shadow-xs'
                 }`}
               >
                 <div className="relative w-full h-full rounded-full overflow-hidden bg-brand-lightGray">
@@ -142,7 +142,7 @@ export function CategoryStoryRail({
                     sizes="80px"
                   />
                   {item.badge && (
-                    <div className="absolute top-0 right-0 bg-brand-black/80 backdrop-blur-xs text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                    <div className="absolute top-0 right-0 bg-brand-black/90 backdrop-blur-xs text-white text-[7px] sm:text-[8px] font-extrabold px-1 py-0.5 rounded-full">
                       {item.badge}
                     </div>
                   )}
@@ -151,9 +151,9 @@ export function CategoryStoryRail({
 
               {/* Title Label */}
               <span
-                className={`text-[11px] font-semibold tracking-wide whitespace-nowrap text-center transition ${
+                className={`text-[10px] sm:text-[11px] font-semibold tracking-tight whitespace-nowrap text-center transition ${
                   isSelected
-                    ? 'text-brand-black font-bold border-b border-brand-black pb-0.5'
+                    ? 'text-brand-black font-extrabold border-b-2 border-brand-black pb-0.5'
                     : 'text-neutral-700 group-hover:text-brand-black'
                 }`}
               >
@@ -164,7 +164,7 @@ export function CategoryStoryRail({
         })}
       </div>
 
-      {/* Navigation Arrow Right */}
+      {/* Navigation Arrow Right (Desktop) */}
       <button
         type="button"
         onClick={() => scroll('right')}
