@@ -292,32 +292,50 @@ export class CategoryService {
    * Fetch flat list of all active categories from Supabase
    */
   static async getAll(): Promise<Category[]> {
-    const { data, error } = await (supabase
-      .from('categories')
-      .select('*')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true }) as any);
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('display_order', { ascending: true });
 
-    if (error) {
-      console.error('[CategoryService] Error fetching categories:', error);
+      if (error) {
+        console.error('[CategoryService] Error fetching categories:', error);
+        return [];
+      }
+
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        name_fr: row.name_fr || row.name,
+        name_en: row.name_en || row.name,
+        name_sw: row.name_sw || row.name,
+        slug: row.slug || row.id,
+        parent_id: row.parent_id,
+        tier: row.tier as 1 | 2 | 3,
+        image_url: row.image_url,
+        icon_name: row.icon_name,
+        display_order: row.display_order ?? row.sort_order ?? 0,
+        sort_order: row.sort_order ?? row.display_order ?? 0,
+        is_featured_home: row.is_featured_home ?? true,
+        is_active: row.is_active ?? true,
+        created_at: row.created_at,
+      }));
+    } catch (err) {
+      console.error('[CategoryService] Unexpected error in getAll:', err);
       return [];
     }
-
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      parent_id: row.parent_id,
-      tier: row.tier as 1 | 2 | 3,
-      image_url: row.image_url,
-      sort_order: row.sort_order ?? 0,
-      is_active: row.is_active ?? true,
-      created_at: row.created_at,
-    }));
   }
 
   /**
-   * Get 3-tier hierarchy tree
+   * Fetch only root macro-universes (parent_id is null)
+   */
+  static async getRootCategories(): Promise<Category[]> {
+    const all = await this.getAll();
+    return all.filter((c) => !c.parent_id);
+  }
+
+  /**
+   * Get complete hierarchical tree in a single query
    */
   static async getTree(): Promise<CategoryTree> {
     const all = await this.getAll();
@@ -325,19 +343,25 @@ export class CategoryService {
     const tier2ByParent: Record<string, Category[]> = {};
     const tier3ByParent: Record<string, Category[]> = {};
 
+    // Group children by parent_id
     all.forEach((cat) => {
-      if (cat.tier === 1) {
-        tier1.push(cat);
-      } else if (cat.tier === 2 && cat.parent_id) {
-        if (!tier2ByParent[cat.parent_id]) tier2ByParent[cat.parent_id] = [];
+      if (!cat.parent_id || cat.tier === 1) {
+        tier1.push({ ...cat, subcategories: [] });
+      } else {
+        if (!tier2ByParent[cat.parent_id]) {
+          tier2ByParent[cat.parent_id] = [];
+        }
         tier2ByParent[cat.parent_id].push(cat);
-      } else if (cat.tier === 3 && cat.parent_id) {
-        if (!tier3ByParent[cat.parent_id]) tier3ByParent[cat.parent_id] = [];
-        tier3ByParent[cat.parent_id].push(cat);
       }
     });
 
-    return { tier1, tier2ByParent, tier3ByParent };
+    // Populate subcategories array onto roots
+    const roots = tier1.map((root) => ({
+      ...root,
+      subcategories: tier2ByParent[root.id] || [],
+    }));
+
+    return { tier1: roots, tier2ByParent, tier3ByParent, roots };
   }
 
   /**

@@ -144,19 +144,27 @@ export interface Store {
 export interface Category {
   id: string;
   name: string;
+  name_fr?: string | null;
+  name_en?: string | null;
+  name_sw?: string | null;
   slug: string | null;
-  parent_id: string | null;
-  tier: 1 | 2 | 3;
-  image_url: string | null;
-  sort_order: number;
-  is_active: boolean;
-  created_at: string;
+  parent_id?: string | null;
+  tier?: 1 | 2 | 3;
+  image_url?: string | null;
+  icon_name?: string | null;
+  display_order?: number;
+  sort_order?: number;
+  is_active?: boolean;
+  is_featured_home?: boolean;
+  subcategories?: Category[];
+  created_at?: string;
 }
 
 export interface CategoryTree {
   tier1: Category[];
   tier2ByParent: Record<string, Category[]>;
   tier3ByParent: Record<string, Category[]>;
+  roots: Category[];
 }
 
 export interface StoreFavorite {

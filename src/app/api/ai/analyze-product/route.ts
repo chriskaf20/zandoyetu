@@ -32,8 +32,15 @@ export async function POST(req: NextRequest) {
           text: `You are an expert e-commerce catalog assistant for Zando Yetu (a fashion and retail marketplace in Lubumbashi, DRC).
 Analyze this product image and extract structured e-commerce product details.
 Generate accurate multilingual titles and descriptions (French, English, and Swahili).
-Infer target gender (women, men, or mixte), category, suitable sizes, dominant colors, material, and care instructions.
-Suggest a realistic retail price in USD.`,
+Classify the product into one of the 6 primary macro-universes:
+- femme (Mode Femme: robes, hauts, pantalons, lingerie, wax)
+- homme (Mode Homme: chemises, pantalons, costumes, streetwear)
+- chaussures (Chaussures: sneakers, talons, sandales, mocassins)
+- sacs (Sacs & Maroquinerie: sacs à main, sacs à dos, pochettes, portefeuilles)
+- accessoires (Accessoires & Bijoux: montres, bijoux, lunettes, ceintures)
+- beaute (Beauté & Soins: parfums, maquillage, soins corps, cheveux)
+
+Infer target gender (women, men, or mixte), suitable sizes, dominant colors in French, material, care instructions, and suggest a realistic retail price in USD.`,
         },
       ],
       config: {
@@ -49,9 +56,14 @@ Suggest a realistic retail price in USD.`,
             desc_fr: { type: Type.STRING, description: 'French description' },
             desc_en: { type: Type.STRING, description: 'English description' },
             desc_sw: { type: Type.STRING, description: 'Swahili description' },
+            universe_slug: { 
+              type: Type.STRING, 
+              enum: ['femme', 'homme', 'chaussures', 'sacs', 'accessoires', 'beaute'],
+              description: 'Primary root universe slug' 
+            },
             category: {
               type: Type.STRING,
-              description: 'Category e.g. Mode Femme, Mode Homme, Chaussures, Sacs, Accessoires',
+              description: 'Category name or slug (e.g. Robes & Ensembles, Baskets & Sneakers, Montres, etc.)',
             },
             target_gender: { type: Type.STRING, enum: ['women', 'men', 'mixte'] },
             suggested_price_usd: { type: Type.NUMBER, description: 'Suggested market price in USD' },
@@ -75,6 +87,7 @@ Suggest a realistic retail price in USD.`,
             'title_sw',
             'description',
             'desc_fr',
+            'universe_slug',
             'category',
             'target_gender',
             'sizes',

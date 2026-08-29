@@ -53,13 +53,37 @@ type VendorTab = 'catalogue' | 'orders' | 'profile' | 'financials' | 'promotions
 type OrderStatusFilter = 'all' | 'pending' | 'processing' | 'shipped' | 'completed' | 'cancelled';
 type ProductStatusFilter = 'active' | 'archived' | 'all';
 
-const SHEIN_CATEGORIES: Record<string, string[]> = {
-  'Femmes': ['Tops & T-shirts', 'Robes', 'Jupes', 'Pantalons & Jeans', 'Maillots', 'Lingerie', 'Vêtements de nuit'],
-  'Hommes': ['Chemises', 'T-shirts', 'Pantalons', 'Hoodies & Sweats', 'Vestes & Manteaux', 'Sous-vêtements'],
-  'Enfants': ['Bébé (0-3 ans)', 'Garçons (4-12 ans)', 'Filles (4-12 ans)', 'Adolescents', 'Jouets & Jeux'],
-  'Chaussures': ['Sandales', 'Sneakers', 'Escarpins', 'Bottes', 'Mocassins', 'Chaussons'],
-  'Bijoux & Accessoires': ['Boucles d\'oreilles', 'Colliers & Bracelets', 'Lunettes', 'Sacs & Maroquinerie', 'Coiffure', 'Ceintures'],
-  'Maison & Décoration': ['Décoration', 'Cuisine & Salle à manger', 'Rangement', 'Linge de maison', 'Électroménager'],
+const HIERARCHICAL_TAXONOMY: Record<string, { label: string; gender: 'women' | 'men' | 'mixte'; subs: string[] }> = {
+  'femme': {
+    label: 'Mode Femme',
+    gender: 'women',
+    subs: ['Robes & Ensembles', 'Hauts & Chemisiers', 'Pantalons & Jupes', 'Lingerie & Nuit', 'Créateurs & Wax', 'Tops & T-shirts', 'Jupes', 'Maillots'],
+  },
+  'homme': {
+    label: 'Mode Homme',
+    gender: 'men',
+    subs: ['Chemises & Polos', 'Pantalons & Jeans', 'Costumes & Blazers', 'Streetwear & T-shirts', 'Hoodies & Sweats', 'Vestes & Manteaux', 'Sous-vêtements'],
+  },
+  'chaussures': {
+    label: 'Chaussures',
+    gender: 'mixte',
+    subs: ['Baskets & Sneakers', 'Escarpins & Talons', 'Sandales & Mules', 'Mocassins & Cuir', 'Bottes & Bottines', 'Chaussons'],
+  },
+  'sacs': {
+    label: 'Sacs & Maroquinerie',
+    gender: 'mixte',
+    subs: ['Sacs à main', 'Sacs à dos & Randonnée', 'Pochettes & Soirée', 'Portefeuilles & Porte-cartes', 'Valises & Voyage'],
+  },
+  'accessoires': {
+    label: 'Accessoires & Bijoux',
+    gender: 'mixte',
+    subs: ['Montres de Luxe & Smart', 'Bijoux, Colliers & Boucles', 'Lunettes de Soleil', 'Ceintures en Cuir', 'Chapeaux & Casquettes'],
+  },
+  'beaute': {
+    label: 'Beauté & Soins',
+    gender: 'mixte',
+    subs: ['Parfums & Brumes', 'Maquillage & Teint', 'Soins Visage & Corps', 'Soins Capillaires & Perruques'],
+  },
 };
 
 const QUICK_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', 'Taille Unique'];
@@ -338,6 +362,7 @@ export default function VendorDashboardPage() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productForm, setProductForm] = useState<CreateProductInput>(emptyProductForm());
+  const [selectedUniverse, setSelectedUniverse] = useState<string>('femme');
   const [productFormTab, setProductFormTab] = useState<'info' | 'pricing' | 'attributes' | 'media' | 'delivery'>('info');
   const [newColorInput, setNewColorInput] = useState('');
   const [newSizeInput, setNewSizeInput] = useState('');
@@ -471,12 +496,18 @@ export default function VendorDashboardPage() {
   const openAddProduct = () => {
     setEditingProductId(null);
     setProductForm(emptyProductForm());
+    setSelectedUniverse('femme');
     setProductFormTab('info');
     setIsProductModalOpen(true);
   };
 
   const openEditProduct = (product: Product) => {
     setEditingProductId(product.id);
+    const matchedUniverse = Object.entries(HIERARCHICAL_TAXONOMY).find(([key, u]) =>
+      u.subs.some(s => s.toLowerCase() === (product.category || '').toLowerCase())
+    )?.[0] || (product.target_gender === 'men' ? 'homme' : 'femme');
+    setSelectedUniverse(matchedUniverse);
+
     setProductForm({
       title: product.title,
       description: product.description || '',
@@ -603,6 +634,12 @@ export default function VendorDashboardPage() {
 
       const d = json.data;
       const suggestedPriceUsd = Number(d.suggested_price_usd) || 0;
+
+      if (d.universe_slug && HIERARCHICAL_TAXONOMY[d.universe_slug]) {
+        setSelectedUniverse(d.universe_slug);
+      } else if (d.target_gender === 'men') {
+        setSelectedUniverse('homme');
+      }
 
       // 4. Auto-populate form fields
       setProductForm(f => ({
@@ -1802,37 +1839,51 @@ export default function VendorDashboardPage() {
                       />
                     </div>
 
-                    {/* Category */}
-                    <div className="relative">
-                      <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">Catégorie *</label>
-                      <button
-                        type="button"
-                        id="category-dropdown"
-                        onClick={() => setCategoryMenuOpen(o => !o)}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs border border-brand-border rounded-lg bg-white focus:outline-none"
-                      >
-                        <span className={productForm.category ? 'text-brand-black font-medium' : 'text-brand-gray'}>{productForm.category || 'Sélectionner une catégorie…'}</span>
-                        {categoryMenuOpen ? <ChevronUp className="w-3.5 h-3.5 text-brand-gray" /> : <ChevronDown className="w-3.5 h-3.5 text-brand-gray" />}
-                      </button>
-                      {categoryMenuOpen && (
-                        <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-brand-border rounded-lg shadow-hover max-h-60 overflow-y-auto">
-                          {Object.entries(SHEIN_CATEGORIES).map(([parent, subs]) => (
-                            <div key={parent}>
-                              <div className="px-3 py-1.5 bg-brand-lightGray text-[10px] font-bold uppercase tracking-wide text-brand-black sticky top-0">{parent}</div>
-                              {subs.map(sub => (
-                                <button
-                                  key={sub}
-                                  type="button"
-                                  onClick={() => { setProductForm(f => ({ ...f, category: sub })); setCategoryMenuOpen(false); }}
-                                  className={`w-full text-left px-4 py-2 text-xs hover:bg-brand-lightGray transition-colors ${productForm.category === sub ? 'bg-brand-black text-white hover:bg-brand-black font-semibold' : 'text-brand-black'}`}
-                                >
-                                  {sub}
-                                </button>
-                              ))}
-                            </div>
+                    {/* Double Menu Déroulant Lié (Univers -> Type de Produit) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">
+                          1. Univers Macro *
+                        </label>
+                        <select
+                          id="product-universe-select"
+                          value={selectedUniverse}
+                          onChange={(e) => {
+                            const uKey = e.target.value;
+                            setSelectedUniverse(uKey);
+                            const u = HIERARCHICAL_TAXONOMY[uKey];
+                            if (u) {
+                              setProductForm(f => ({
+                                ...f,
+                                target_gender: u.gender,
+                                category: u.subs[0] || f.category,
+                              }));
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg bg-white focus:outline-none focus:border-brand-black"
+                        >
+                          {Object.entries(HIERARCHICAL_TAXONOMY).map(([key, u]) => (
+                            <option key={key} value={key}>{u.label}</option>
                           ))}
-                        </div>
-                      )}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-brand-gray uppercase tracking-wide mb-1.5">
+                          2. Type d'Article / Sous-Catégorie *
+                        </label>
+                        <select
+                          id="product-category-select"
+                          value={productForm.category}
+                          onChange={(e) => setProductForm(f => ({ ...f, category: e.target.value }))}
+                          className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg bg-white focus:outline-none focus:border-brand-black font-semibold text-brand-black"
+                        >
+                          <option value="">-- Choisir le type d'article --</option>
+                          {(HIERARCHICAL_TAXONOMY[selectedUniverse]?.subs || []).map((sub) => (
+                            <option key={sub} value={sub}>{sub}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Description */}

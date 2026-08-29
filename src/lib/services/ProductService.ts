@@ -84,16 +84,20 @@ export class ProductService {
 
     if (options?.category && options.category !== 'all') {
       const cat = options.category.toLowerCase().trim();
-      if (cat === 'robes') {
-        query = query.or(`category.ilike.%robe%,category.ilike.%dress%,title.ilike.%robe%,description.ilike.%robe%`);
+      if (cat === 'femme' || cat === 'femmes') {
+        query = query.or(`target_gender.eq.women,target_gender.eq.mixte,category.ilike.%femme%,category.ilike.%robe%`);
+      } else if (cat === 'homme' || cat === 'hommes') {
+        query = query.or(`target_gender.eq.men,category.ilike.%homme%,category.ilike.%chemise%,category.ilike.%costume%`);
       } else if (cat === 'chaussures' || cat === 'shoes') {
-        query = query.or(`category.ilike.%chaussure%,category.ilike.%shoe%,category.ilike.%sneaker%,category.ilike.%mocassin%,category.ilike.%sandale%,title.ilike.%mocassin%,title.ilike.%chaussure%`);
-      } else if (cat === 'accessoires' || cat === 'sacs') {
-        query = query.or(`category.ilike.%sac%,category.ilike.%accessoire%,category.ilike.%bag%,category.ilike.%bijoux%`);
-      } else if (cat === 'femmes' || cat === 'femme') {
-        query = query.or(`target_gender.eq.women,target_gender.eq.mixte`);
-      } else if (cat === 'hommes' || cat === 'homme') {
-        query = query.or(`target_gender.eq.men,target_gender.eq.mixte`);
+        query = query.or(`category.ilike.%chaussure%,category.ilike.%shoe%,category.ilike.%sneaker%,category.ilike.%basket%,category.ilike.%talon%,category.ilike.%mocassin%,category.ilike.%sandale%,title.ilike.%sneaker%,title.ilike.%chaussure%`);
+      } else if (cat === 'sacs') {
+        query = query.or(`category.ilike.%sac%,category.ilike.%maroquinerie%,category.ilike.%pochette%,category.ilike.%valise%,category.ilike.%portefeuille%,title.ilike.%sac%`);
+      } else if (cat === 'accessoires') {
+        query = query.or(`category.ilike.%accessoire%,category.ilike.%bijou%,category.ilike.%montre%,category.ilike.%lunette%,category.ilike.%ceinture%,title.ilike.%montre%,title.ilike.%bijou%`);
+      } else if (cat === 'beaute') {
+        query = query.or(`category.ilike.%beaut%,category.ilike.%parfum%,category.ilike.%maquillage%,category.ilike.%soin%,category.ilike.%cheveu%,title.ilike.%parfum%`);
+      } else if (cat === 'robes') {
+        query = query.or(`category.ilike.%robe%,category.ilike.%dress%,title.ilike.%robe%,description.ilike.%robe%`);
       } else if (cat === 'tendances') {
         query = query.eq('is_trending', true);
       } else {
