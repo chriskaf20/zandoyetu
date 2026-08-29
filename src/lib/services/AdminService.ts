@@ -1374,66 +1374,24 @@ export class AdminService {
   }
 
   /**
-   * Set product flash sale discount
+   * Get all active products for promotions/trending management
    */
-  static async setProductFlashSale(product: any, discountPercent: number): Promise<boolean> {
+  static async getProductsForPromotions(): Promise<any[]> {
     try {
-      const originalPrice = product.compare_at_price && product.compare_at_price > product.price_usd
-        ? product.compare_at_price
-        : product.price_usd;
-
-      const discountedPrice = Math.round(originalPrice * (1 - discountPercent / 100) * 100) / 100;
-      const discountedCdf = Math.round(discountedPrice * 2850);
-
-      const { error } = await (supabase
+      const { data, error } = await supabase
         .from('products')
-        .update({
-          price_usd: discountedPrice,
-          price_cdf: discountedCdf,
-          compare_at_price: originalPrice,
-          is_trending: true,
-          local_updated_at: new Date().toISOString(),
-        })
-        .eq('id', product.id) as any);
+        .select('id, title, price_usd, price_cdf, compare_at_price, is_trending, stock_count, category, images_urls, status, users:vendor_id(full_name)')
+        .eq('status', 'active')
+        .order('local_updated_at', { ascending: false });
 
       if (error) {
-        console.error('[AdminService] Error setting flash sale on product:', error);
-        return false;
+        console.error('[AdminService] Error fetching products for promotions:', error);
+        return [];
       }
-      return true;
+      return data || [];
     } catch (err) {
-      console.error('[AdminService] Error setting flash sale on product:', err);
-      return false;
-    }
-  }
-
-  /**
-   * Remove product flash sale discount (restore original price)
-   */
-  static async removeProductFlashSale(product: any): Promise<boolean> {
-    try {
-      const originalPrice = product.compare_at_price || product.price_usd;
-      const originalCdf = Math.round(originalPrice * 2850);
-
-      const { error } = await (supabase
-        .from('products')
-        .update({
-          price_usd: originalPrice,
-          price_cdf: originalCdf,
-          compare_at_price: null,
-          is_trending: false,
-          local_updated_at: new Date().toISOString(),
-        })
-        .eq('id', product.id) as any);
-
-      if (error) {
-        console.error('[AdminService] Error removing flash sale from product:', error);
-        return false;
-      }
-      return true;
-    } catch (err) {
-      console.error('[AdminService] Error removing flash sale from product:', err);
-      return false;
+      console.error('[AdminService] Unexpected error fetching products for promotions:', err);
+      return [];
     }
   }
 

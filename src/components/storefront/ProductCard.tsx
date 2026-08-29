@@ -12,18 +12,19 @@ import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 
 interface ProductCardProps {
   product: Product;
+  isFlashSale?: boolean;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, isFlashSale }: ProductCardProps) {
   const { formatPrice, formatPriceCDF, formatPriceUSD, currency } = useCurrencyStore();
   const { t } = useLanguageStore();
   const addItem = useCartStore((s) => s.addItem);
-  const isFavorite = useWishlistStore((s) => s.isFavorite(product.id));
-  const toggleFavorite = useWishlistStore((s) => s.toggleFavorite);
+  const { favoriteProductIds, toggleFavorite } = useWishlistStore();
 
   const [isAdded, setIsAdded] = useState(false);
+  const isFavorite = favoriteProductIds.includes(product.id);
 
-  const img = product.images_urls?.[0] || 'https://placehold.co/400x500/png?text=Zando+Yetu';
+  const img = product.images_urls?.[0] || 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600';
   const isOutOfStock = product.stock_count <= 0;
 
   const handleQuickAdd = (e: React.MouseEvent) => {
@@ -56,12 +57,17 @@ export function ProductCard({ product }: ProductCardProps) {
 
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+          {isFlashSale && (
+            <span className="bg-brand-red text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow flex items-center gap-0.5">
+              <span>⚡ FLASH</span>
+            </span>
+          )}
           {product.is_trending && (
             <span className="bg-brand-black text-white text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded shadow">
               {t('trendingNow')}
             </span>
           )}
-          {product.compare_at_price && product.compare_at_price > product.price_usd && (
+          {!isFlashSale && product.compare_at_price && product.compare_at_price > product.price_usd && (
             <span className="bg-brand-red text-white text-[9px] font-bold px-2 py-0.5 rounded shadow">
               -{Math.round(((product.compare_at_price - product.price_usd) / product.compare_at_price) * 100)}%
             </span>

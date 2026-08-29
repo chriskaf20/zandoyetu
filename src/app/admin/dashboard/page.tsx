@@ -47,7 +47,8 @@ import {
   ArrowRight,
   TrendingUp,
   HelpCircle,
-  ExternalLink
+  ExternalLink,
+  Zap
 } from 'lucide-react';
 import { 
   AdminService, 
@@ -60,7 +61,7 @@ import {
   TicketMessage,
   PendingCoupon
 } from '@/lib/services/AdminService';
-import { HeroBanner, Product, OrderStatus } from '@/types/schema';
+import { HeroBanner, Product, OrderStatus, FlashSale } from '@/types/schema';
 import { supabase } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 
@@ -69,6 +70,7 @@ type AdminTab =
   | 'orders'
   | 'users'
   | 'moderation'
+  | 'promotions'
   | 'accounting'
   | 'support'
   | 'coupons'
@@ -134,6 +136,23 @@ export default function AdminDashboardPage() {
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [processingProductId, setProcessingProductId] = useState<string | null>(null);
 
+  // Promotions & Flash Sales State
+  const [flashSalesList, setFlashSalesList] = useState<any[]>([]);
+  const [promotionsProducts, setPromotionsProducts] = useState<any[]>([]);
+  const [promotionsSubTab, setPromotionsSubTab] = useState<'flash' | 'trending'>('flash');
+  const [trendingSearchQuery, setTrendingSearchQuery] = useState('');
+  const [showCreateFlashModal, setShowCreateFlashModal] = useState(false);
+  const [creatingFlash, setCreatingFlash] = useState(false);
+  const [processingFlashId, setProcessingFlashId] = useState<string | null>(null);
+  const [togglingTrendingId, setTogglingTrendingId] = useState<string | null>(null);
+  const [flashForm, setFlashForm] = useState({
+    product_id: '',
+    flash_price_usd: 0,
+    stock_limit: 10,
+    start_time: new Date().toISOString().slice(0, 16),
+    end_time: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 16),
+  });
+
   // Accounting State
   const [awaitingPayments, setAwaitingPayments] = useState<PaymentTransaction[]>([]);
   const [approvingPaymentId, setApprovingPaymentId] = useState<string | null>(null);
@@ -191,7 +210,9 @@ export default function AdminDashboardPage() {
         coupsPending,
         coupsAll,
         banns,
-        nameReqs
+        nameReqs,
+        flashList,
+        promoProds,
       ] = await Promise.all([
         AdminService.getPlatformMetrics(),
         AdminService.getFinancialLedger(),
@@ -208,6 +229,8 @@ export default function AdminDashboardPage() {
         AdminService.getAllCouponsAdmin(),
         AdminService.getHeroBanners(),
         AdminService.getStoreNameRequests(),
+        AdminService.getFlashSales(),
+        AdminService.getProductsForPromotions(),
       ]);
 
       setMetrics(m);
@@ -233,6 +256,8 @@ export default function AdminDashboardPage() {
       setPendingCoupons(coupsPending);
       setAllCoupons(coupsAll);
       setBanners(banns);
+      setFlashSalesList(flashList);
+      setPromotionsProducts(promoProds);
     } catch (err) {
       console.error('[AdminDashboard] Error loading platform data:', err);
       setMessage({ type: 'error', text: 'Erreur lors du chargement des données d’administration.' });
@@ -693,6 +718,88 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Flash Sales Management
+  const handleCreateFlashSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!flashForm.product_id) {
+      setMessage({ type: 'error', text: 'Veuillez sélectionner un produit.' });
+      return;
+    }
+    if (flashForm.flash_price_usd <= 0) {
+      setMessage({ type: 'error', text: 'Le prix flash doit être supérieur à 0.' });
+      return;
+    }
+    if (new Date(flashForm.end_time) <= new Date(flashForm.start_time)) {
+      setMessage({ type: 'error', text: 'La date de fin doit être postérieure à la date de début.' });
+      return;
+    }
+
+    setCreatingFlash(true);
+    try {
+      const ok = await AdminService.createFlashSale({
+        product_id: flashForm.product_id,
+        flash_price_usd: Number(flashForm.flash_price_usd),
+        stock_limit: Number(flashForm.stock_limit) || 10,
+        start_time: new Date(flashForm.start_time).toISOString(),
+        end_time: new Date(flashForm.end_time).toISOString(),
+      });
+
+      if (ok) {
+        setMessage({ type: 'success', text: 'Vente Flash créée et programmée avec succès !' });
+        setShowCreateFlashModal(false);
+        setFlashForm({
+          product_id: '',
+          flash_price_usd: 0,
+          stock_limit: 10,
+          start_time: new Date().toISOString().slice(0, 16),
+          end_time: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 16),
+        });
+        const updated = await AdminService.getFlashSales();
+        setFlashSalesList(updated);
+      } else {
+        setMessage({ type: 'error', text: 'Erreur lors de la création de la vente flash.' });
+      }
+    } finally {
+      setCreatingFlash(false);
+    }
+  };
+
+  const handleDeleteFlashSale = async (id: string) => {
+    if (!confirm('Supprimer ou arrêter cette vente flash ?')) return;
+    setProcessingFlashId(id);
+    try {
+      const ok = await AdminService.deleteFlashSale(id);
+      if (ok) {
+        setFlashSalesList((prev) => prev.filter((f) => f.id !== id));
+        setMessage({ type: 'success', text: 'Vente flash retirée.' });
+      }
+    } finally {
+      setProcessingFlashId(null);
+    }
+  };
+
+  const handleToggleProductTrending = async (productId: string, currentTrending: boolean) => {
+    setTogglingTrendingId(productId);
+    try {
+      const nextTrending = !currentTrending;
+      const ok = await AdminService.toggleProductTrending(productId, nextTrending);
+      if (ok) {
+        setPromotionsProducts((prev) =>
+          prev.map((p) => (p.id === productId ? { ...p, is_trending: nextTrending } : p))
+        );
+        setProducts((prev) =>
+          prev.map((p) => (p.id === productId ? { ...p, is_trending: nextTrending } : p))
+        );
+        setMessage({
+          type: 'success',
+          text: nextTrending ? 'Article ajouté aux Tendances du Moment 🔥' : 'Article retiré des Tendances.',
+        });
+      }
+    } finally {
+      setTogglingTrendingId(null);
+    }
+  };
+
   // Filtered lists
   const filteredOrders = orders.filter((o) => {
     const matchesFilter = orderStatusFilter === 'all' || o.order_status === orderStatusFilter;
@@ -770,13 +877,14 @@ export default function AdminDashboardPage() {
           </button>
         </div>
 
-        {/* 8-Tab Horizontal Scrollable Navigation */}
+        {/* 9-Tab Horizontal Scrollable Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1 overflow-x-auto no-scrollbar border-t border-neutral-800/60">
           {[
             { key: 'general', label: 'Général', icon: BarChart3, badge: (merchantApps.length + storeNameRequests.length) || undefined },
             { key: 'orders', label: 'Commandes', icon: ShoppingBag, badge: orders.length || undefined },
             { key: 'users', label: 'Utilisateurs', icon: Users, badge: (storeNameRequests.length > 0 ? `${storeNameRequests.length} req` : undefined) },
             { key: 'moderation', label: 'Modération', icon: Package, badge: products.length || undefined },
+            { key: 'promotions', label: 'Promotions & Flash', icon: Flame, badge: flashSalesList.length || undefined },
             { key: 'accounting', label: 'Comptabilité', icon: Wallet, badge: awaitingPayments.length || undefined },
             { key: 'support', label: 'Support', icon: MessageSquare, badge: supportThreads.filter((t) => t.status !== 'closed').length || undefined },
             { key: 'coupons', label: 'Coupons', icon: Tag, badge: pendingCoupons.length || undefined },
@@ -1716,7 +1824,7 @@ export default function AdminDashboardPage() {
 
                               <button
                                 type="button"
-                                onClick={() => handleToggleTrending(p.id, p.is_trending)}
+                                onClick={() => handleToggleProductTrending(p.id, p.is_trending)}
                                 className={`px-2 py-1 text-[10px] font-bold rounded border transition ${
                                   p.is_trending ? 'bg-amber-400/20 text-amber-300 border-amber-400/40' : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
                                 }`}
@@ -1751,6 +1859,432 @@ export default function AdminDashboardPage() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: PROMOTIONS & VENTES FLASH */}
+            {/* ========================================================================= */}
+            {activeTab === 'promotions' && (
+              <div className="space-y-6">
+                {/* Header & Sub-Navigation */}
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30">
+                      <Flame className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold uppercase tracking-wider text-white">Gestionnaire des Promotions & Tendances</h2>
+                      <p className="text-xs text-neutral-400">Contrôlez les ventes flash officielles et les sélections tendances de la page d'accueil.</p>
+                    </div>
+                  </div>
+
+                  {/* Sub Tabs */}
+                  <div className="flex items-center gap-2 bg-neutral-950 p-1 rounded-lg border border-neutral-800 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setPromotionsSubTab('flash')}
+                      className={`px-3 py-1.5 rounded text-xs font-bold transition flex items-center gap-1.5 ${
+                        promotionsSubTab === 'flash'
+                          ? 'bg-red-600 text-white shadow-sm'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Ventes Flash ({flashSalesList.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromotionsSubTab('trending')}
+                      className={`px-3 py-1.5 rounded text-xs font-bold transition flex items-center gap-1.5 ${
+                        promotionsSubTab === 'trending'
+                          ? 'bg-amber-400 text-black shadow-sm'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      <span>Tendances du Moment ({promotionsProducts.filter((p) => p.is_trending).length})</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* ─────────────────────────────────────────────────────────────
+                    SUB-TAB 1: GESTIONNAIRE DES VENTES FLASH
+                ───────────────────────────────────────────────────────────── */}
+                {promotionsSubTab === 'flash' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-neutral-400">
+                        Les ventes flash sont actives sur la page d'accueil avec compte à rebours et badge exclusif <strong>FLASH ⚡</strong>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateFlashModal(true)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition flex items-center gap-2 shadow"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Programmer une Vente Flash</span>
+                      </button>
+                    </div>
+
+                    {flashSalesList.length === 0 ? (
+                      <div className="py-16 text-center text-neutral-400 bg-neutral-900/50 rounded-2xl border border-neutral-800">
+                        <Zap className="w-8 h-8 mx-auto mb-2 text-red-500/40" />
+                        <p className="text-sm font-semibold">Aucune vente flash planifiée.</p>
+                        <p className="text-xs text-neutral-500 mt-1">Cliquez sur "Programmer une Vente Flash" pour sélectionner un article.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {flashSalesList.map((sale) => {
+                          const product = sale.products;
+                          const regularPrice = product?.price_usd || 0;
+                          const flashPrice = sale.flash_price_usd;
+                          const discount = regularPrice > flashPrice
+                            ? Math.round(((regularPrice - flashPrice) / regularPrice) * 100)
+                            : 0;
+
+                          const now = new Date();
+                          const start = new Date(sale.start_time);
+                          const end = new Date(sale.end_time);
+                          const isLive = now >= start && now < end;
+                          const isUpcoming = now < start;
+
+                          const soldPercent = sale.stock_limit > 0
+                            ? Math.min(100, Math.round(((sale.items_sold || 0) / sale.stock_limit) * 100))
+                            : 0;
+
+                          return (
+                            <div
+                              key={sale.id}
+                              className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex flex-col justify-between space-y-3 shadow-sm hover:border-neutral-700 transition"
+                            >
+                              <div>
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                      isLive
+                                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800 animate-pulse'
+                                        : isUpcoming
+                                        ? 'bg-sky-950 text-sky-300 border border-sky-800'
+                                        : 'bg-neutral-800 text-neutral-400'
+                                    }`}
+                                  >
+                                    {isLive ? '🟢 EN COURS' : isUpcoming ? '🔵 PLANIFIÉE' : '⚪ TERMINÉE'}
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFlashSale(sale.id)}
+                                    disabled={processingFlashId === sale.id}
+                                    className="p-1 text-red-400 hover:bg-red-950/50 rounded transition"
+                                    title="Supprimer la vente flash"
+                                  >
+                                    {processingFlashId === sale.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  {product?.images_urls?.[0] && (
+                                    <div className="relative w-14 h-16 rounded-lg overflow-hidden border border-neutral-800 shrink-0 bg-black">
+                                      <Image
+                                        src={product.images_urls[0]}
+                                        alt={product.title || 'Produit'}
+                                        fill
+                                        className="object-cover"
+                                        sizes="56px"
+                                      />
+                                      {discount > 0 && (
+                                        <span className="absolute top-0 left-0 bg-red-600 text-white text-[8px] font-black px-1 rounded-br">
+                                          -{discount}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="text-xs font-bold text-white truncate">{product?.title || 'Produit indisponible'}</h4>
+                                    <div className="flex items-baseline gap-2 mt-1">
+                                      <span className="text-sm font-black text-amber-400">${flashPrice.toFixed(2)}</span>
+                                      {regularPrice > flashPrice && (
+                                        <span className="text-xs text-neutral-500 line-through">${regularPrice.toFixed(2)}</span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-neutral-400 font-mono">≈ {Math.round(flashPrice * 2850).toLocaleString()} CDF</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Progress & Dates */}
+                              <div className="bg-neutral-950 p-2.5 rounded-lg space-y-2 text-xs">
+                                <div>
+                                  <div className="flex items-center justify-between text-[10px] text-neutral-400 mb-1">
+                                    <span>Stock réservé flash</span>
+                                    <span className="font-bold text-white">{sale.items_sold || 0} / {sale.stock_limit} vendus</span>
+                                  </div>
+                                  <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-gradient-to-r from-amber-500 to-red-500 rounded-full"
+                                      style={{ width: `${soldPercent}%` }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="text-[10px] text-neutral-400 space-y-0.5 pt-1 border-t border-neutral-900 font-mono">
+                                  <p>Début : {new Date(sale.start_time).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</p>
+                                  <p>Fin : {new Date(sale.end_time).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ─────────────────────────────────────────────────────────────
+                    SUB-TAB 2: GESTIONNAIRE DES TENDANCES (is_trending)
+                ───────────────────────────────────────────────────────────── */}
+                {promotionsSubTab === 'trending' && (
+                  <div className="space-y-4">
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="relative flex-1 w-full">
+                        <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={trendingSearchQuery}
+                          onChange={(e) => setTrendingSearchQuery(e.target.value)}
+                          placeholder="Rechercher un article par nom ou catégorie..."
+                          className="w-full pl-9 pr-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                      <span className="text-xs text-neutral-400 whitespace-nowrap">
+                        <strong className="text-amber-400">{promotionsProducts.filter((p) => p.is_trending).length}</strong> articles en Tendance
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {promotionsProducts
+                        .filter((p) => {
+                          if (!trendingSearchQuery.trim()) return true;
+                          const q = trendingSearchQuery.toLowerCase();
+                          return (
+                            p.title?.toLowerCase().includes(q) ||
+                            p.category?.toLowerCase().includes(q) ||
+                            p.users?.full_name?.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((p) => {
+                          const isTrending = !!p.is_trending;
+                          const isToggling = togglingTrendingId === p.id;
+                          const img = Array.isArray(p.images_urls)
+                            ? p.images_urls[0]
+                            : typeof p.images_urls === 'string'
+                            ? (JSON.parse(p.images_urls || '[]')[0] || '')
+                            : '';
+
+                          return (
+                            <div
+                              key={p.id}
+                              className={`bg-neutral-900 border rounded-xl p-3 flex flex-col justify-between space-y-3 transition ${
+                                isTrending ? 'border-amber-400/60 shadow-md bg-amber-400/5' : 'border-neutral-800'
+                              }`}
+                            >
+                              <div>
+                                <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-black mb-2.5">
+                                  {img ? (
+                                    <Image src={img} alt={p.title} fill className="object-cover" sizes="200px" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-neutral-600 text-xs">Pas d'image</div>
+                                  )}
+                                  {isTrending && (
+                                    <span className="absolute top-2 left-2 bg-amber-400 text-black text-[9px] font-black uppercase px-2 py-0.5 rounded shadow">
+                                      🔥 TENDANCE
+                                    </span>
+                                  )}
+                                </div>
+
+                                <h4 className="text-xs font-bold text-white line-clamp-1">{p.title}</h4>
+                                <p className="text-[10px] text-neutral-400 mt-0.5 truncate">{p.category || 'Non classé'} • {p.users?.full_name || 'Boutique'}</p>
+                                <div className="flex items-baseline gap-1.5 mt-1.5">
+                                  <span className="text-xs font-black text-white">${Number(p.price_usd).toFixed(2)}</span>
+                                  <span className="text-[10px] text-neutral-500 font-mono">≈ {Math.round(Number(p.price_usd) * 2850).toLocaleString()} CDF</span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleProductTrending(p.id, isTrending)}
+                                disabled={isToggling}
+                                className={`w-full py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition flex items-center justify-center gap-1.5 ${
+                                  isTrending
+                                    ? 'bg-amber-400 text-black hover:bg-amber-500 shadow'
+                                    : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700'
+                                }`}
+                              >
+                                {isToggling ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : isTrending ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>En Tendance (Actif)</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Mettre en Tendance</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ─────────────────────────────────────────────────────────────
+                    MODAL: PROGRAMMER UNE VENTE FLASH
+                ───────────────────────────────────────────────────────────── */}
+                {showCreateFlashModal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-red-500" />
+                          <span>Programmer une Vente Flash</span>
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateFlashModal(false)}
+                          className="text-neutral-400 hover:text-white"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleCreateFlashSale} className="space-y-4">
+                        {/* Select Product */}
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                            Sélectionner l'article du catalogue *
+                          </label>
+                          <select
+                            value={flashForm.product_id}
+                            onChange={(e) => {
+                              const pid = e.target.value;
+                              const selectedP = promotionsProducts.find((p) => p.id === pid);
+                              setFlashForm({
+                                ...flashForm,
+                                product_id: pid,
+                                flash_price_usd: selectedP ? Math.round(Number(selectedP.price_usd) * 0.8 * 100) / 100 : 0,
+                              });
+                            }}
+                            className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-red-500"
+                            required
+                          >
+                            <option value="">-- Choisir un produit actif --</option>
+                            {promotionsProducts.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.title} — Prix actuel : ${Number(p.price_usd).toFixed(2)} (Stock: {p.stock_count})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Flash Price */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                              Prix Flash (USD) *
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0.1"
+                              value={flashForm.flash_price_usd || ''}
+                              onChange={(e) => setFlashForm({ ...flashForm, flash_price_usd: parseFloat(e.target.value) || 0 })}
+                              placeholder="Ex. 15.00"
+                              className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-red-500 font-mono font-bold"
+                              required
+                            />
+                            {flashForm.flash_price_usd > 0 && (
+                              <span className="text-[10px] text-neutral-400 font-mono mt-1 block">
+                                ≈ {Math.round(flashForm.flash_price_usd * 2850).toLocaleString()} CDF
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                              Limite de Stock Flash *
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="500"
+                              value={flashForm.stock_limit}
+                              onChange={(e) => setFlashForm({ ...flashForm, stock_limit: parseInt(e.target.value) || 10 })}
+                              className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-red-500 font-mono"
+                              required
+                            />
+                            <span className="text-[10px] text-neutral-400 mt-1 block">Unités réservées au prix flash</span>
+                          </div>
+                        </div>
+
+                        {/* Dates */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                              Date & Heure de Début *
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={flashForm.start_time}
+                              onChange={(e) => setFlashForm({ ...flashForm, start_time: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-red-500 font-mono"
+                              required
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-neutral-400 mb-1">
+                              Date & Heure de Fin *
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={flashForm.end_time}
+                              onChange={(e) => setFlashForm({ ...flashForm, end_time: e.target.value })}
+                              className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-red-500 font-mono"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="pt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCreateFlashModal(false)}
+                            className="flex-1 py-2.5 text-xs font-bold text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition"
+                          >
+                            Annuler
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={creatingFlash || !flashForm.product_id || flashForm.flash_price_usd <= 0}
+                            className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition flex items-center justify-center gap-1.5 disabled:opacity-50 shadow"
+                          >
+                            {creatingFlash ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                            <span>Créer la Vente Flash</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 )}
               </div>

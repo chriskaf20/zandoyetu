@@ -7,89 +7,115 @@ import {
   Flame, 
   Clock, 
   TrendingUp, 
-  Store, 
+  Store as StoreIcon, 
   ArrowRight, 
   ShoppingBag, 
   CheckCircle2, 
   Check,
-  Sparkles
+  Zap
 } from 'lucide-react';
-import { Product } from '@/types/schema';
+import { Product, FlashSale, Store } from '@/types/schema';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useCartStore } from '@/lib/stores/useCartStore';
-import { useStores } from '@/hooks/useStores';
 
 interface PromoDealsGridProps {
-  products: Product[];
+  flashSales?: FlashSale[];
+  trendingProducts?: Product[];
+  topStores?: Store[];
 }
 
-export function PromoDealsGrid({ products }: PromoDealsGridProps) {
+export function PromoDealsGrid({
+  flashSales = [],
+  trendingProducts = [],
+  topStores = [],
+}: PromoDealsGridProps) {
   const { formatPrice, formatPriceCDF } = useCurrencyStore();
   const addItem = useCartStore((s) => s.addItem);
-  const { data: stores = [] } = useStores();
 
   const [addedId, setAddedId] = useState<string | null>(null);
 
-  // Dynamic countdown timer for Flash deals
-  const [timeLeft, setTimeLeft] = useState({ hours: 4, minutes: 42, seconds: 18 });
+  // Dynamic countdown timer based on the earliest ending flash sale (or fallback 4h timer)
+  const [timeLeft, setTimeLeft] = useState<{ hours: number; minutes: number; seconds: number }>({
+    hours: 4,
+    minutes: 0,
+    seconds: 0,
+  });
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev.seconds > 0) return { ...prev, seconds: prev.seconds - 1 };
-        if (prev.minutes > 0) return { ...prev, minutes: 59, seconds: 59 };
-        if (prev.hours > 0) return { ...prev, hours: prev.hours - 1, minutes: 59, seconds: 59 };
-        return { hours: 4, minutes: 0, seconds: 0 };
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    // Find the closest ending flash sale
+    const activeEnds = flashSales
+      .map((s) => new Date(s.end_time).getTime())
+      .filter((t) => t > Date.now())
+      .sort((a, b) => a - b);
 
-  const handleAddToCart = (e: React.MouseEvent, p: Product) => {
+    const targetEnd = activeEnds.length > 0 ? activeEnds[0] : Date.now() + 4 * 3600 * 1000;
+
+    const updateTimer = () => {
+      const diff = Math.max(0, targetEnd - Date.now());
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft({ hours, minutes, seconds });
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [flashSales]);
+
+  const handleAddToCart = (e: React.MouseEvent, p: Product, flashPriceUsd?: number) => {
     e.preventDefault();
     e.stopPropagation();
-    addItem(p);
+    
+    // If flash price provided, add with flash discounted price
+    const productToAdd = flashPriceUsd
+      ? { ...p, price_usd: flashPriceUsd, price_cdf: Math.round(flashPriceUsd * 2850), compare_at_price: p.price_usd }
+      : p;
+
+    addItem(productToAdd);
     setAddedId(p.id);
     setTimeout(() => setAddedId(null), 2000);
   };
 
-  // 1. Flash Deals: Strictly products with discounts
-  const dealProducts = products.filter(
-    (p) => p.compare_at_price && p.compare_at_price > p.price_usd
-  ).slice(0, 4);
+  // Filter valid active flash sales that have mapped products
+  const validFlashSales = flashSales.filter((s) => s.products && s.products.status === 'active').slice(0, 4);
 
-  // 2. Trending: Strictly products marked is_trending
-  const trendProducts = products.filter((p) => p.is_trending).slice(0, 4);
+  // Filter valid trending products
+  const validTrends = trendingProducts.filter((p) => p.is_trending && p.status === 'active').slice(0, 4);
 
-  // 3. Top Stores: Active stores only
-  const topStores = stores.filter((s) => !s.is_archived && (s.is_verified || s.store_name)).slice(0, 2);
+  // Filter valid top stores
+  const validStores = topStores.filter((s) => !s.is_archived && (s.is_verified || s.store_name)).slice(0, 2);
 
-  // If none of the sections have items, don't render empty placeholders
-  const hasDeals = dealProducts.length > 0;
-  const hasTrends = trendProducts.length > 0;
-  const hasStores = topStores.length > 0;
+  const hasFlash = validFlashSales.length > 0;
+  const hasTrends = validTrends.length > 0;
+  const hasStores = validStores.length > 0;
 
-  if (!hasDeals && !hasTrends && !hasStores) {
+  if (!hasFlash && !hasTrends && !hasStores) {
     return null;
   }
 
   return (
     <section className="my-6 sm:my-8">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Block 1: Ventes Flash (Render only if deals exist) */}
-        {hasDeals && (
+        {/* ════════════════════════════════════════════════════════════════
+            BLOCK 1: VENTES FLASH (Exclusivement de la table flash_sales)
+        ════════════════════════════════════════════════════════════════ */}
+        {hasFlash && (
           <div className="bg-gradient-to-br from-red-950 via-neutral-900 to-black text-white p-4 sm:p-5 rounded-2xl border border-red-900/40 shadow-sm flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-red-900/40">
                 <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-red-600 rounded-full text-white">
+                  <div className="p-1.5 bg-red-600 rounded-full text-white animate-pulse">
                     <Flame className="w-3.5 h-3.5 fill-white" />
                   </div>
                   <div>
-                    <h3 className="font-serif text-xs sm:text-sm font-bold tracking-wide text-white">
-                      Ventes Flash du Jour
+                    <h3 className="font-serif text-xs sm:text-sm font-bold tracking-wide text-white flex items-center gap-1.5">
+                      <span>Ventes Flash</span>
+                      <span className="bg-red-600 text-white text-[8px] font-black uppercase px-1.5 py-0.2 rounded">
+                        OFFICIEL
+                      </span>
                     </h3>
-                    <p className="text-[10px] text-red-300">Offres à durée limitée</p>
+                    <p className="text-[10px] text-red-300">Offres limitées dans le temps & stocks</p>
                   </div>
                 </div>
 
@@ -106,24 +132,30 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
 
               {/* Horizontal Swipeable Slider on Mobile */}
               <div className="flex sm:flex-col gap-2.5 mt-3 overflow-x-auto sm:overflow-x-visible no-scrollbar pb-1 sm:pb-0 snap-x">
-                {dealProducts.map((p) => {
+                {validFlashSales.map((sale) => {
+                  const p = sale.products!;
                   const img = p.images_urls?.[0] || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200';
-                  const discount = p.compare_at_price
-                    ? Math.round(((p.compare_at_price - p.price_usd) / p.compare_at_price) * 100)
+                  const regularPrice = p.price_usd;
+                  const flashPrice = sale.flash_price_usd;
+                  const discount = regularPrice > flashPrice 
+                    ? Math.round(((regularPrice - flashPrice) / regularPrice) * 100)
+                    : 0;
+
+                  const soldPercent = sale.stock_limit > 0 
+                    ? Math.min(100, Math.round(((sale.items_sold || 0) / sale.stock_limit) * 100))
                     : 0;
 
                   return (
                     <div
-                      key={p.id}
-                      className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl flex items-center gap-2.5 transition min-w-[240px] sm:min-w-0 snap-start flex-shrink-0 sm:flex-shrink"
+                      key={sale.id}
+                      className="p-2.5 bg-white/5 hover:bg-white/10 border border-red-500/20 rounded-xl flex items-center gap-2.5 transition min-w-[250px] sm:min-w-0 snap-start flex-shrink-0 sm:flex-shrink"
                     >
-                      <div className="relative w-12 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-800">
-                        <Image src={img} alt={p.title} fill className="object-cover" sizes="48px" />
-                        {discount > 0 && (
-                          <span className="absolute top-0 left-0 bg-red-600 text-white text-[8px] font-extrabold px-1 rounded-br">
-                            -{discount}%
-                          </span>
-                        )}
+                      <div className="relative w-14 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-800 border border-red-500/30">
+                        <Image src={img} alt={p.title} fill className="object-cover" sizes="56px" />
+                        <span className="absolute top-0 left-0 bg-red-600 text-white text-[8px] font-black px-1 py-0.5 rounded-br flex items-center gap-0.5">
+                          <Zap className="w-2 h-2 fill-white" />
+                          {discount > 0 ? `-${discount}%` : 'FLASH'}
+                        </span>
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -135,27 +167,42 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
                         <div className="mt-0.5">
                           <div className="flex items-baseline gap-1.5">
                             <span className="text-xs font-black text-amber-400">
-                              {formatPrice(p.price_usd)}
+                              {formatPrice(flashPrice)}
                             </span>
-                            {p.compare_at_price && (
+                            {regularPrice > flashPrice && (
                               <span className="text-[10px] text-neutral-400 line-through">
-                                {formatPrice(p.compare_at_price)}
+                                {formatPrice(regularPrice)}
                               </span>
                             )}
                           </div>
                           <p className="text-[9px] text-neutral-400 font-mono">
-                            ≈ {formatPriceCDF(p.price_usd)}
+                            ≈ {formatPriceCDF(flashPrice)}
                           </p>
                         </div>
+
+                        {/* Stock Progress Bar */}
+                        {sale.stock_limit > 0 && (
+                          <div className="mt-1.5">
+                            <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-amber-500 to-red-500 rounded-full transition-all"
+                                style={{ width: `${soldPercent}%` }}
+                              />
+                            </div>
+                            <span className="text-[8px] text-neutral-400 mt-0.5 block font-medium">
+                              {sale.items_sold || 0}/{sale.stock_limit} vendus
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <button
                         type="button"
-                        onClick={(e) => handleAddToCart(e, p)}
+                        onClick={(e) => handleAddToCart(e, p, flashPrice)}
                         className={`p-2 rounded-lg transition shadow-xs flex-shrink-0 ${
                           addedId === p.id ? 'bg-emerald-600 text-white' : 'bg-red-600 hover:bg-red-700 text-white'
                         }`}
-                        aria-label="Ajouter au panier"
+                        aria-label="Ajouter au prix flash"
                       >
                         {addedId === p.id ? <Check className="w-3 h-3" /> : <ShoppingBag className="w-3 h-3" />}
                       </button>
@@ -165,17 +212,18 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
               </div>
             </div>
 
-            <Link
-              href="/?category=all"
-              className="mt-3 pt-2.5 border-t border-red-900/40 text-[11px] font-semibold text-red-300 hover:text-white flex items-center justify-between"
-            >
-              <span>Voir toutes les promotions</span>
-              <ArrowRight className="w-3 h-3" />
-            </Link>
+            <div className="mt-3 pt-2.5 border-t border-red-900/40 text-[11px] font-semibold text-red-300 flex items-center justify-between">
+              <span className="flex items-center gap-1 text-[10px] text-neutral-300">
+                <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
+                Prix exclusifs réservés au catalogue flash
+              </span>
+            </div>
           </div>
         )}
 
-        {/* Block 2: Tendances du Moment (Render only if trending products exist) */}
+        {/* ════════════════════════════════════════════════════════════════
+            BLOCK 2: TENDANCES DU MOMENT (Exclusivement is_trending === true)
+        ════════════════════════════════════════════════════════════════ */}
         {hasTrends && (
           <div className="bg-neutral-50 p-4 sm:p-5 rounded-2xl border border-neutral-200/80 shadow-xs flex flex-col justify-between">
             <div>
@@ -188,7 +236,7 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
                     <h3 className="font-serif text-xs sm:text-sm font-bold text-neutral-900">
                       Tendances du Moment
                     </h3>
-                    <p className="text-[10px] text-neutral-500">Sélection vedette Katanga</p>
+                    <p className="text-[10px] text-neutral-500">Sélection vedette Lubumbashi</p>
                   </div>
                 </div>
                 <span className="px-2 py-0.5 bg-neutral-900 text-white text-[9px] font-extrabold uppercase rounded-full">
@@ -198,7 +246,7 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
 
               {/* Horizontal Slider on mobile */}
               <div className="flex sm:flex-col gap-2.5 mt-3 overflow-x-auto sm:overflow-x-visible no-scrollbar pb-1 sm:pb-0 snap-x">
-                {trendProducts.map((p) => {
+                {validTrends.map((p) => {
                   const img = p.images_urls?.[0] || 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=200';
 
                   return (
@@ -218,7 +266,7 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
                         </Link>
                         <div className="flex items-baseline gap-2 mt-0.5">
                           <span className="text-xs font-bold text-neutral-900">{formatPrice(p.price_usd)}</span>
-                          <span className="text-[9px] text-neutral-400">≈ {formatPriceCDF(p.price_usd)}</span>
+                          <span className="text-[9px] text-neutral-400 font-mono">≈ {formatPriceCDF(p.price_usd)}</span>
                         </div>
                       </div>
 
@@ -242,20 +290,22 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
               href="/?trending=true"
               className="mt-3 pt-2.5 border-t border-neutral-200 text-[11px] font-semibold text-neutral-900 hover:underline flex items-center justify-between"
             >
-              <span>Explorer les tendances</span>
+              <span>Explorer toutes les tendances</span>
               <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
         )}
 
-        {/* Block 3: Top Vendeurs (Render only if stores exist) */}
+        {/* ════════════════════════════════════════════════════════════════
+            BLOCK 3: TOP VENDEURS LUBUMBASHI (Boutiques vérifiées)
+        ════════════════════════════════════════════════════════════════ */}
         {hasStores && (
           <div className="bg-gradient-to-br from-neutral-900 to-black text-white p-4 sm:p-5 rounded-2xl border border-neutral-800 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-amber-500 rounded-full text-black">
-                    <Store className="w-3.5 h-3.5" />
+                    <StoreIcon className="w-3.5 h-3.5" />
                   </div>
                   <div>
                     <h3 className="font-serif text-xs sm:text-sm font-bold text-white">
@@ -270,7 +320,7 @@ export function PromoDealsGrid({ products }: PromoDealsGridProps) {
               </div>
 
               <div className="mt-3 space-y-2.5">
-                {topStores.map((st) => (
+                {validStores.map((st) => (
                   <div key={st.id} className="p-2.5 bg-white/5 border border-white/10 rounded-xl flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">

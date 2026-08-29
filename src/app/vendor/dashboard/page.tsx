@@ -1639,44 +1639,87 @@ export default function VendorDashboardPage() {
               )}
             </div>
 
-            {/* Flash Sales preview */}
-            {flashSales.length > 0 && (
-              <div className="bg-white border border-brand-border rounded-xl overflow-hidden">
-                <div className="px-5 py-4 border-b border-brand-border">
-                  <h3 className="text-xs font-bold text-brand-black uppercase tracking-widest">Ventes Flash Actives</h3>
+            {/* Flash Sales Info & Read-Only List */}
+            <div className="bg-white border border-brand-border rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-brand-border flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold text-brand-black uppercase tracking-widest flex items-center gap-2">
+                    <span className="text-red-600 font-black">⚡</span>
+                    <span>Mes Articles en Ventes Flash (Lecture Seule)</span>
+                  </h3>
+                  <p className="text-[10px] text-brand-gray mt-0.5">
+                    Sélectionnés et programmés par l'administration centrale Zando Yetu pour booster votre visibilité.
+                  </p>
                 </div>
+                <span className="px-2 py-0.5 bg-neutral-100 text-neutral-600 text-[10px] font-bold rounded">
+                  {flashSales.length} programmés
+                </span>
+              </div>
+
+              {flashSales.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 px-4 text-center text-brand-gray text-xs">
+                  <p className="font-semibold text-neutral-600">Aucun de vos articles n'est actuellement en vente flash.</p>
+                  <p className="text-[10px] text-neutral-400 mt-1 max-w-md">
+                    L'équipe commerciale Zando Yetu sélectionne régulièrement les meilleurs articles pour les mettre en avant lors des campagnes flash.
+                  </p>
+                </div>
+              ) : (
                 <div className="divide-y divide-brand-border">
-                  {flashSales.map(sale => {
+                  {flashSales.map((sale) => {
                     const product = sale.products;
-                    const soldPercent = sale.stock_limit > 0 ? Math.min(100, Math.round((sale.items_sold / sale.stock_limit) * 100)) : 0;
-                    const isActive = new Date(sale.end_time) > new Date();
+                    const soldPercent = sale.stock_limit > 0 ? Math.min(100, Math.round(((sale.items_sold || 0) / sale.stock_limit) * 100)) : 0;
+                    const now = new Date();
+                    const start = new Date(sale.start_time);
+                    const end = new Date(sale.end_time);
+                    const isLive = now >= start && now < end;
+                    const isUpcoming = now < start;
 
                     return (
-                      <div key={sale.id} className="flex items-center gap-4 px-5 py-3">
-                        {product?.images_urls?.[0] && (
-                          <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-brand-border shrink-0 bg-brand-lightGray">
-                            <Image src={product.images_urls[0]} alt={product.title} fill className="object-cover" sizes="48px" unoptimized />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-brand-black line-clamp-1">{product?.title}</p>
-                          <p className="text-xs text-brand-black font-bold">{formatUSD(sale.flash_price_usd)} <span className="text-brand-gray font-normal text-[10px]">prix flash</span></p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <div className="flex-1 h-1.5 bg-brand-lightGray rounded-full overflow-hidden">
-                              <div className="h-full bg-brand-black rounded-full" style={{ width: `${soldPercent}%` }} />
+                      <div key={sale.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-3.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {product?.images_urls?.[0] && (
+                            <div className="relative w-12 h-14 rounded-lg overflow-hidden border border-brand-border shrink-0 bg-brand-lightGray">
+                              <Image src={product.images_urls[0]} alt={product.title} fill className="object-cover" sizes="48px" unoptimized />
                             </div>
-                            <span className="text-[10px] text-brand-gray whitespace-nowrap">{sale.items_sold}/{sale.stock_limit} vendus</span>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-brand-black line-clamp-1">{product?.title}</p>
+                            <div className="flex items-baseline gap-2 mt-0.5">
+                              <span className="text-xs text-brand-black font-bold">{formatUSD(sale.flash_price_usd)}</span>
+                              {product && product.price_usd > sale.flash_price_usd && (
+                                <span className="text-[10px] text-brand-gray line-through">{formatUSD(product.price_usd)}</span>
+                              )}
+                              <span className="text-[9px] text-neutral-400 font-mono">
+                                ≈ {Math.round(sale.flash_price_usd * 2850).toLocaleString()} CDF
+                              </span>
+                            </div>
+                            <div className="text-[9px] text-brand-gray mt-1 font-mono">
+                              Période : {new Date(sale.start_time).toLocaleDateString()} {new Date(sale.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {new Date(sale.end_time).toLocaleDateString()} {new Date(sale.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
                           </div>
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-neutral-100 text-neutral-600'}`}>
-                          {isActive ? 'EN COURS' : 'TERMINÉE'}
-                        </span>
+
+                        <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            isLive ? 'bg-emerald-100 text-emerald-700' : isUpcoming ? 'bg-sky-100 text-sky-700' : 'bg-neutral-100 text-neutral-600'
+                          }`}>
+                            {isLive ? '🟢 EN COURS' : isUpcoming ? '🔵 PLANIFIÉE' : '⚪ TERMINÉE'}
+                          </span>
+                          <div className="w-28 text-right">
+                            <div className="w-full h-1.5 bg-brand-lightGray rounded-full overflow-hidden mt-1">
+                              <div className="h-full bg-brand-black rounded-full" style={{ width: `${soldPercent}%` }} />
+                            </div>
+                            <span className="text-[9px] text-brand-gray whitespace-nowrap block mt-0.5">
+                              {sale.items_sold || 0}/{sale.stock_limit} vendus
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>

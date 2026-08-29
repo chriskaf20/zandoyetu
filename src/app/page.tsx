@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import { useProducts } from '@/hooks/useProducts';
 import { useCategories } from '@/hooks/useCategories';
 import { useHeroBanners } from '@/hooks/useHeroBanners';
+import { useFlashSales } from '@/hooks/useFlashSales';
+import { useStores } from '@/hooks/useStores';
 import { useWishlistStore } from '@/lib/stores/useWishlistStore';
 import { HeroComposite } from '@/components/storefront/HeroComposite';
 import { CategoryStoryRail } from '@/components/storefront/CategoryStoryRail';
@@ -27,6 +29,8 @@ function HomeContent() {
 
   const { data: banners = [] } = useHeroBanners();
   const { data: categories = [] } = useCategories();
+  const { data: flashSales = [] } = useFlashSales();
+  const { data: stores = [] } = useStores();
   const favoriteProductIds = useWishlistStore((s) => s.favoriteProductIds);
 
   const { data: allProducts = [], isLoading: isLoadingProducts } = useProducts({
@@ -34,6 +38,9 @@ function HomeContent() {
     gender: genderFilter !== 'all' ? genderFilter : undefined,
     search,
   });
+
+  // Filter isolated trending products
+  const trendingProducts = allProducts.filter((p) => p.is_trending);
 
   // If in wishlist view, filter to favorite products
   const products = isWishlistView
@@ -83,7 +90,11 @@ function HomeContent() {
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
           />
-          <PromoDealsGrid products={allProducts} />
+          <PromoDealsGrid 
+            flashSales={flashSales} 
+            trendingProducts={trendingProducts} 
+            topStores={stores} 
+          />
         </>
       )}
 
