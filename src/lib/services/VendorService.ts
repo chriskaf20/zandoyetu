@@ -493,6 +493,47 @@ export class VendorService {
     return data.publicUrl;
   }
 
+  /**
+   * Upload base64 image (such as WebP from Studio Pro) to Supabase Storage
+   */
+  static async uploadBase64Image(dataUrl: string, vendorId?: string): Promise<string> {
+    try {
+      const mimeMatch = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/webp';
+      const cleanBase64 = dataUrl.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+
+      const byteCharacters = atob(cleanBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeType });
+      const ext = mimeType.includes('webp') ? 'webp' : mimeType.includes('png') ? 'png' : 'jpg';
+
+      const fileName = `studio-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+      const filePath = vendorId ? `products/${vendorId}/${fileName}` : `products/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, blob, {
+          contentType: mimeType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.warn('[VendorService] Storage upload failed for base64, returning data URL:', uploadError);
+        return dataUrl;
+      }
+
+      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+      return data.publicUrl;
+    } catch (err) {
+      console.warn('[VendorService] Error uploading base64 image:', err);
+      return dataUrl;
+    }
+  }
+
   // ── Financials ─────────────────────────────────────────────────────────────
 
   /**

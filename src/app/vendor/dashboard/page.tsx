@@ -368,8 +368,10 @@ export default function VendorDashboardPage() {
   const [newSizeInput, setNewSizeInput] = useState('');
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [enhancingImageIdx, setEnhancingImageIdx] = useState<number | 'new' | null>(null);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const studioFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Store profile form ──
   const [storeForm, setStoreForm] = useState({
@@ -671,6 +673,74 @@ export default function VendorDashboardPage() {
     } finally {
       setAiAnalyzing(false);
       if (aiFileInputRef.current) aiFileInputRef.current.value = '';
+    }
+  };
+
+  // ── Studio Pro: Background Cleanup & 3:4 Standardization ─────────────────
+  const handleEnhanceExistingImage = async (idx: number, imageUrl: string) => {
+    if (enhancingImageIdx !== null) return;
+    setEnhancingImageIdx(idx);
+    try {
+      const res = await fetch('/api/ai/enhance-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Erreur lors du nettoyage Studio');
+      }
+
+      // Upload clean WebP to Supabase Storage
+      const newStudioUrl = await VendorService.uploadBase64Image(json.imageBase64, user?.id);
+
+      setProductForm(f => {
+        const nextImages = [...f.images_urls];
+        nextImages[idx] = newStudioUrl;
+        return { ...f, images_urls: nextImages };
+      });
+
+      showMessage('success', '✨ Photo détourée et sublimée en qualité Studio 3:4 !');
+    } catch (err: any) {
+      showMessage('error', err.message || 'Erreur lors de la transformation Studio Pro.');
+    } finally {
+      setEnhancingImageIdx(null);
+    }
+  };
+
+  const handleStudioProUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setEnhancingImageIdx('new');
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch('/api/ai/enhance-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Erreur lors du nettoyage Studio');
+      }
+
+      const studioUrl = await VendorService.uploadBase64Image(json.imageBase64, user?.id);
+      setProductForm(f => ({ ...f, images_urls: [...f.images_urls, studioUrl] }));
+      showMessage('success', '✨ Photo importée et sublimée en qualité Studio 3:4 !');
+    } catch (err: any) {
+      showMessage('error', err.message || 'Erreur lors de l\'import Studio Pro.');
+    } finally {
+      setEnhancingImageIdx(null);
+      if (studioFileInputRef.current) studioFileInputRef.current.value = '';
     }
   };
 
@@ -2159,43 +2229,97 @@ export default function VendorDashboardPage() {
                       </div>
                     </div>
 
-                    <p className="text-[10px] text-brand-gray">La première image est l'image principale (Hero). Ajoutez jusqu'à 8 images.</p>
+                    <p className="text-[10px] text-brand-gray">La première image est l'image principale (Hero). Format recommandé : 3:4 portrait (1200×1600px). Ajoutez jusqu'à 8 images.</p>
 
                     {/* Image grid */}
                     {productForm.images_urls.length > 0 && (
-                      <div className="grid grid-cols-4 gap-2">
-                        {productForm.images_urls.map((url, idx) => (
-                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-brand-border bg-brand-lightGray group">
-                            <Image src={url} alt={`Image ${idx + 1}`} fill className="object-cover" sizes="120px" unoptimized />
-                            {idx === 0 && (
-                              <div className="absolute bottom-0 left-0 right-0 bg-black/70 py-1 text-center">
-                                <span className="text-[8px] font-bold text-brand-accent uppercase">HERO</span>
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setProductForm(f => ({ ...f, images_urls: f.images_urls.filter((_, i) => i !== idx) }))}
-                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="w-3 h-3 text-white" />
-                            </button>
-                          </div>
-                        ))}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {productForm.images_urls.map((url, idx) => {
+                          const isEnhancing = enhancingImageIdx === idx;
+                          return (
+                            <div key={idx} className="relative aspect-[3/4] rounded-lg overflow-hidden border border-brand-border bg-brand-lightGray group shadow-xs">
+                              <Image src={url} alt={`Image ${idx + 1}`} fill className="object-cover" sizes="160px" unoptimized />
+                              
+                              {/* Hero Badge */}
+                              {idx === 0 && (
+                                <div className="absolute top-1 left-1 bg-black/80 backdrop-blur-xs px-1.5 py-0.5 rounded text-[8px] font-extrabold text-amber-400 uppercase tracking-wider z-10">
+                                  HERO
+                                </div>
+                              )}
+
+                              {/* Studio Cleanup Ongoing Overlay */}
+                              {isEnhancing && (
+                                <div className="absolute inset-0 bg-black/75 backdrop-blur-xs flex flex-col items-center justify-center text-center p-2 z-20">
+                                  <Loader2 className="w-5 h-5 text-amber-400 animate-spin mb-1" />
+                                  <span className="text-[9px] font-bold text-white uppercase tracking-tight">Studio Pro en cours...</span>
+                                  <span className="text-[7px] text-neutral-300">Détourage & cadrage 3:4</span>
+                                </div>
+                              )}
+
+                              {/* Studio Pro Transform Button */}
+                              {!isEnhancing && (
+                                <button
+                                  type="button"
+                                  id={`enhance-image-btn-${idx}`}
+                                  title="Nettoyer l'Arrière-Plan & Sublimer en Studio 3:4"
+                                  onClick={() => handleEnhanceExistingImage(idx, url)}
+                                  disabled={enhancingImageIdx !== null}
+                                  className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/80 hover:bg-black text-amber-300 text-[8px] font-bold tracking-tight opacity-90 group-hover:opacity-100 transition flex items-center gap-1 shadow-sm z-10"
+                                >
+                                  <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                                  <span>Studio Pro</span>
+                                </button>
+                              )}
+
+                              {/* Delete Photo Button */}
+                              <button
+                                type="button"
+                                onClick={() => setProductForm(f => ({ ...f, images_urls: f.images_urls.filter((_, i) => i !== idx) }))}
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 hover:bg-black/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                              >
+                                <X className="w-3 h-3 text-white" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
 
-                    {/* Upload buttons */}
-                    <div className="flex gap-2">
+                    {/* Upload actions bar */}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {/* Studio Pro Clean Upload */}
+                      <input ref={studioFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleStudioProUpload} />
+                      <button
+                        type="button"
+                        id="upload-studio-btn"
+                        onClick={() => studioFileInputRef.current?.click()}
+                        disabled={uploadingImage || aiAnalyzing || enhancingImageIdx !== null}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all disabled:opacity-50"
+                      >
+                        {enhancingImageIdx === 'new' ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                            <span>Nettoyage Studio 3:4 en cours…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                            <span>✨ Nettoyer l'Arrière-Plan (Studio Pro)</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Standard Upload */}
                       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                       <button
                         type="button"
                         id="upload-image-btn"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={uploadingImage || aiAnalyzing}
-                        className="flex items-center gap-2 px-4 py-2 border border-brand-border text-xs font-semibold rounded-lg hover:bg-brand-lightGray transition-colors disabled:opacity-50"
+                        disabled={uploadingImage || aiAnalyzing || enhancingImageIdx !== null}
+                        className="flex items-center gap-2 px-3.5 py-2 border border-brand-border text-xs font-semibold rounded-lg hover:bg-brand-lightGray transition-colors disabled:opacity-50"
                       >
                         {uploadingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                        {uploadingImage ? 'Téléchargement…' : 'Ajouter une photo (sans IA)'}
+                        {uploadingImage ? 'Téléchargement…' : 'Ajouter photo standard'}
                       </button>
                     </div>
 
@@ -2206,7 +2330,7 @@ export default function VendorDashboardPage() {
                         type="url"
                         value={imageUrlInput}
                         onChange={(e) => setImageUrlInput(e.target.value)}
-                        placeholder="URL directe (https://…)"
+                        placeholder="Ou collez une URL directe (https://…)"
                         className="flex-1 px-3 py-2 text-xs border border-brand-border rounded-lg focus:outline-none focus:border-brand-black"
                       />
                       <button

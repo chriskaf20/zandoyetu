@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["sharp", "@imgly/background-removal-node"],
   images: {
     unoptimized: true,
     remotePatterns: [
