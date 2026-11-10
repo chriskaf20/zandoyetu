@@ -20,7 +20,7 @@ export const translations = {
     viewDetails: 'Voir Détails',
     outOfStock: 'Rupture de Stock',
     onlyLeft: 'Plus que {x} en stock !',
-    freeShippingBanner: "Livraison Gratuite \u00e0 Lubumbashi d\u00e8s $50 d\u2019achats",
+    freeShippingBanner: "Livraison Gratuite \u00e0 Lubumbashi d\u00e8s $200 d\u2019achats",
     cartTitle: 'Mon Panier',
     cartEmpty: 'Votre panier est vide',
     cartEmptySubtitle: 'Découvrez nos collections exclusives et remplissez votre garde-robe.',
@@ -152,7 +152,7 @@ export const translations = {
     clearCart: 'Vider le panier',
     removeItem: 'Supprimer',
     orderSummary: 'Récapitulatif de Commande',
-    freeDeliveryThreshold: 'Gratuit (Dès $50)',
+    freeDeliveryThreshold: 'Gratuit (Dès $200)',
     viewFullCart: 'Voir Panier Complet',
 
     // Cart Drawer Item Labels
@@ -275,7 +275,7 @@ export const translations = {
     viewDetails: 'View Details',
     outOfStock: 'Out of Stock',
     onlyLeft: 'Only {x} left in stock!',
-    freeShippingBanner: 'Free Delivery in Lubumbashi on orders over $50',
+    freeShippingBanner: 'Free Delivery in Lubumbashi on orders over $200',
     cartTitle: 'Shopping Cart',
     cartEmpty: 'Your cart is empty',
     cartEmptySubtitle: 'Explore our curated collections and elevate your style.',
@@ -407,7 +407,7 @@ export const translations = {
     clearCart: 'Clear cart',
     removeItem: 'Remove',
     orderSummary: 'Order Summary',
-    freeDeliveryThreshold: 'Free (Over $50)',
+    freeDeliveryThreshold: 'Free (Over $200)',
     viewFullCart: 'View Full Cart',
 
     // Cart Drawer Item Labels
@@ -530,7 +530,7 @@ export const translations = {
     viewDetails: 'Tazama Maelezo',
     outOfStock: 'Imeisha',
     onlyLeft: 'Zimebaki {x} tu!',
-    freeShippingBanner: 'Usafirishaji Bila Malipo Lubumbashi kuanzia $50',
+    freeShippingBanner: 'Usafirishaji Bila Malipo Lubumbashi kuanzia $200',
     cartTitle: 'Kikapu Changu',
     cartEmpty: 'Kikapu chako kiko tupu',
     cartEmptySubtitle: 'Tazama mikusanyiko yetu na ujaze kabati lako.',
@@ -662,7 +662,7 @@ export const translations = {
     clearCart: 'Futa kikapu',
     removeItem: 'Ondoa',
     orderSummary: 'Muhtasari wa Agizo',
-    freeDeliveryThreshold: 'Bure (Kuanzia $50)',
+    freeDeliveryThreshold: 'Bure (Kuanzia $200)',
     viewFullCart: 'Tazama Kikapu Kamili',
 
     // Cart Drawer Item Labels

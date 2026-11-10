@@ -137,13 +137,13 @@ CREATE TABLE IF NOT EXISTS public.delivery_zones (
 -- Kolwezi : valeur par défaut à ajuster par l'admin.
 INSERT INTO public.delivery_zones (city, commune, fee_usd, free_delivery_threshold_usd, eta_label, sort_order)
 VALUES
-  ('Lubumbashi', 'Lubumbashi', 5.00, 50.00, '24h - 48h', 1),
-  ('Lubumbashi', 'Kampemba',   5.00, 50.00, '24h - 48h', 2),
-  ('Lubumbashi', 'Kenya',      5.00, 50.00, '24h - 48h', 3),
-  ('Lubumbashi', 'Kamalondo',  5.00, 50.00, '24h - 48h', 4),
-  ('Lubumbashi', 'Katuba',     5.00, 50.00, '24h - 48h', 5),
-  ('Lubumbashi', 'Ruashi',     5.00, 50.00, '24h - 48h', 6),
-  ('Lubumbashi', 'Annexe',     5.00, 50.00, '24h - 48h', 7),
+  ('Lubumbashi', 'Lubumbashi', 5.00, 200.00, '24h - 48h', 1),
+  ('Lubumbashi', 'Kampemba',   5.00, 200.00, '24h - 48h', 2),
+  ('Lubumbashi', 'Kenya',      5.00, 200.00, '24h - 48h', 3),
+  ('Lubumbashi', 'Kamalondo',  5.00, 200.00, '24h - 48h', 4),
+  ('Lubumbashi', 'Katuba',     5.00, 200.00, '24h - 48h', 5),
+  ('Lubumbashi', 'Ruashi',     5.00, 200.00, '24h - 48h', 6),
+  ('Lubumbashi', 'Annexe',     5.00, 200.00, '24h - 48h', 7),
   ('Kolwezi',    'Dilala',    10.00, NULL,  '2 - 4 jours', 8),
   ('Kolwezi',    'Manika',    10.00, NULL,  '2 - 4 jours', 9)
 ON CONFLICT (city, commune) DO NOTHING;
