@@ -19,30 +19,37 @@ import {
   CheckCircle2,
   Compass
 } from 'lucide-react';
-import { CategoryService, StructuredDepartment } from '@/lib/services/CategoryService';
+import { useStructuredTaxonomy } from '@/hooks/useCategories';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 
 const DEPARTMENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  femmes: Shirt,
-  hommes: Shirt,
+  femme: Shirt,
+  homme: Shirt,
   chaussures: Sparkles,
+  sacs: ShoppingBag,
   accessoires: Glasses,
   beaute: Heart,
-  enfants: Baby,
-  maison: HomeIcon,
 };
 
 function CategoriesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialDept = searchParams.get('dept') || 'femmes';
+  const initialDept = searchParams.get('dept') || 'femme';
   const { t } = useLanguageStore();
 
-  const departments: StructuredDepartment[] = CategoryService.getStructuredTaxonomy();
+  const departments = useStructuredTaxonomy();
   const [activeDeptSlug, setActiveDeptSlug] = useState<string>(initialDept);
   const [searchQuery, setSearchQuery] = useState('');
 
   const activeDepartment = departments.find((d) => d.slug === activeDeptSlug) || departments[0];
+
+  if (!activeDepartment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-xs text-brand-gray">
+        Chargement des univers…
+      </div>
+    );
+  }
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();

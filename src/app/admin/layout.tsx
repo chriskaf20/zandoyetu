@@ -35,7 +35,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   // Check admin role
-  const isAdmin = user && (user.role === 'admin' || user.email?.includes('admin'));
+  const isAdmin = user?.role === 'admin';
 
   if (!user || !isAdmin) {
     return (

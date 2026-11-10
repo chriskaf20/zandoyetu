@@ -1,6 +1,11 @@
 import { supabase } from '@/lib/supabase/client';
 import { TicketThread, TicketMessage } from '@/types/schema';
 
+/** La colonne s'appelle `text` en base ; l'interface lit `message_body` */
+export function mapTicketMessage(row: any): TicketMessage {
+  return { ...row, message_body: row.text ?? row.message_body ?? '' } as TicketMessage;
+}
+
 export class SupportService {
   /**
    * Fetch all tickets belonging to a specific customer
@@ -23,7 +28,7 @@ export class SupportService {
   }
 
   /**
-   * Create a new support ticket and send the initial message atomically
+   * Create a new support ticket and send the initial message
    */
   static async createTicket(
     customerId: string,
@@ -40,8 +45,6 @@ export class SupportService {
           customer_id: customerId,
           subject: subject.trim(),
           status: 'open',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         } as any)
         .select()
         .single() as any);
@@ -54,8 +57,8 @@ export class SupportService {
         .insert({
           thread_id: thread.id,
           sender_id: customerId,
-          message_body: initialMessage.trim(),
-          created_at: new Date().toISOString(),
+          sender_role: 'customer',
+          text: initialMessage.trim(),
         } as any) as any);
 
       if (msgError) {
@@ -82,7 +85,7 @@ export class SupportService {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      return (data || []) as TicketMessage[];
+      return (data || []).map(mapTicketMessage);
     } catch (err) {
       console.error('[SupportService] Error fetching ticket messages:', err);
       return [];
@@ -105,8 +108,8 @@ export class SupportService {
         .insert({
           thread_id: threadId,
           sender_id: senderId,
-          message_body: messageBody.trim(),
-          created_at: new Date().toISOString(),
+          sender_role: 'customer',
+          text: messageBody.trim(),
         } as any)
         .select()
         .single() as any);
@@ -121,7 +124,7 @@ export class SupportService {
         } as any)
         .eq('id', threadId) as any);
 
-      return data as TicketMessage;
+      return mapTicketMessage(data);
     } catch (err) {
       console.error('[SupportService] Error sending ticket message:', err);
       return null;
@@ -134,15 +137,16 @@ export class SupportService {
   static async closeTicket(threadId: string): Promise<boolean> {
     if (!threadId) return false;
     try {
-      const { error } = await (supabase
+      const { data, error } = await (supabase
         .from('ticket_threads')
         .update({
           status: 'closed',
           updated_at: new Date().toISOString(),
         } as any)
-        .eq('id', threadId) as any);
+        .eq('id', threadId)
+        .select('id') as any);
 
-      return !error;
+      return !error && (data?.length ?? 0) > 0;
     } catch (err) {
       console.error('[SupportService] Error closing ticket:', err);
       return false;

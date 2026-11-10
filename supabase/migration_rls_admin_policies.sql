@@ -1,3 +1,6 @@
+-- ⚠️ REMPLACÉE par migration_v3_01_schema_integrity.sql, migration_v3_02_functions.sql et migration_v3_03_rls.sql — NE PLUS EXÉCUTER :
+-- ses politiques FOR ALL / USING (true) rouvrent les failles corrigées en v3.
+
 -- ============================================================
 -- Supabase RLS & Admin Policies Migration
 -- Project: Zando Yetu (dimhzfxztyvbtljdyhqq)

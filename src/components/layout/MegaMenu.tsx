@@ -17,24 +17,23 @@ import {
   Glasses
 } from 'lucide-react';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
-import { CategoryService, StructuredDepartment } from '@/lib/services/CategoryService';
+import { useStructuredTaxonomy } from '@/hooks/useCategories';
 
 const DEPARTMENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  femmes: Shirt,
-  hommes: Shirt,
+  femme: Shirt,
+  homme: Shirt,
   chaussures: Sparkles,
+  sacs: ShoppingBag,
   accessoires: Glasses,
   beaute: Heart,
-  enfants: Baby,
-  maison: HomeIcon,
 };
 
 export function MegaMenu() {
   const { t } = useLanguageStore();
-  const departments: StructuredDepartment[] = CategoryService.getStructuredTaxonomy();
-  
+  const departments = useStructuredTaxonomy();
+
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
-  const [activeDepartmentSlug, setActiveDepartmentSlug] = useState<string>('femmes');
+  const [activeDepartmentSlug, setActiveDepartmentSlug] = useState<string>('femme');
   const menuRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -90,8 +89,8 @@ export function MegaMenu() {
           {/* Main Rayon Trigger */}
           <button
             type="button"
-            onMouseEnter={() => handleMouseEnter('femmes')}
-            onClick={() => setActiveMenu(activeMenu ? null : 'femmes')}
+            onMouseEnter={() => handleMouseEnter(departments[0]?.slug || 'femme')}
+            onClick={() => setActiveMenu(activeMenu ? null : departments[0]?.slug || 'femme')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition whitespace-nowrap uppercase tracking-wider ${
               activeMenu ? 'bg-brand-black text-white' : 'text-brand-black hover:bg-brand-lightGray'
             }`}
@@ -121,7 +120,7 @@ export function MegaMenu() {
 
             {/* Flash Deals Highlight Link */}
             <Link
-              href="/?trending=true"
+              href="/#ventes-flash"
               className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded font-bold uppercase tracking-wider whitespace-nowrap hover:bg-amber-100 transition text-[11px] sm:text-xs ml-1"
             >
               <Flame className="w-3.5 h-3.5 text-red-500 fill-red-500 animate-pulse" />
@@ -132,7 +131,7 @@ export function MegaMenu() {
       </div>
 
       {/* Mega Menu Dropdown Panel */}
-      {activeMenu && (
+      {activeMenu && selectedDepartment && (
         <div 
           className="absolute left-0 right-0 top-full z-50 bg-white border-b border-brand-border shadow-2xl animate-in fade-in-50 slide-in-from-top-1 duration-150"
           onMouseEnter={() => {

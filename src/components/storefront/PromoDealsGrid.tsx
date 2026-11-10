@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Product, FlashSale, Store } from '@/types/schema';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { useCartStore, flashFromSale } from '@/lib/stores/useCartStore';
 
 interface PromoDealsGridProps {
   flashSales?: FlashSale[];
@@ -34,24 +34,27 @@ export function PromoDealsGrid({
 
   const [addedId, setAddedId] = useState<string | null>(null);
 
-  // Dynamic countdown timer based on the earliest ending flash sale (or fallback 4h timer)
-  const [timeLeft, setTimeLeft] = useState<{ hours: number; minutes: number; seconds: number }>({
-    hours: 4,
-    minutes: 0,
-    seconds: 0,
-  });
+  // Compte à rebours sur la vente flash qui se termine en premier (aucun si rien ne court)
+  const [timeLeft, setTimeLeft] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
 
   useEffect(() => {
-    // Find the closest ending flash sale
     const activeEnds = flashSales
       .map((s) => new Date(s.end_time).getTime())
       .filter((t) => t > Date.now())
       .sort((a, b) => a - b);
 
-    const targetEnd = activeEnds.length > 0 ? activeEnds[0] : Date.now() + 4 * 3600 * 1000;
+    if (activeEnds.length === 0) {
+      setTimeLeft(null);
+      return;
+    }
+    const targetEnd = activeEnds[0];
 
     const updateTimer = () => {
-      const diff = Math.max(0, targetEnd - Date.now());
+      const diff = targetEnd - Date.now();
+      if (diff <= 0) {
+        setTimeLeft(null);
+        return;
+      }
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
@@ -63,28 +66,26 @@ export function PromoDealsGrid({
     return () => clearInterval(interval);
   }, [flashSales]);
 
-  const handleAddToCart = (e: React.MouseEvent, p: Product, flashPriceUsd?: number) => {
+  const handleAddToCart = (e: React.MouseEvent, p: Product, sale?: FlashSale) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    // If flash price provided, add with flash discounted price
-    const productToAdd = flashPriceUsd
-      ? { ...p, price_usd: flashPriceUsd, price_cdf: Math.round(flashPriceUsd * 2850), compare_at_price: p.price_usd }
-      : p;
 
-    addItem(productToAdd);
+    // Le prix flash est porté par la ligne de panier ; le serveur le revalide au paiement
+    addItem(p, undefined, undefined, 1, flashFromSale(sale));
     setAddedId(p.id);
     setTimeout(() => setAddedId(null), 2000);
   };
 
   // Filter valid active flash sales that have mapped products
-  const validFlashSales = flashSales.filter((s) => s.products && s.products.status === 'active').slice(0, 4);
+  const validFlashSales = flashSales
+    .filter((s) => s.products && s.products.status === 'active' && new Date(s.end_time).getTime() > Date.now())
+    .slice(0, 4);
 
   // Filter valid trending products
   const validTrends = trendingProducts.filter((p) => p.is_trending && p.status === 'active').slice(0, 4);
 
-  // Filter valid top stores
-  const validStores = topStores.filter((s) => !s.is_archived && (s.is_verified || s.store_name)).slice(0, 2);
+  // Boutiques certifiées uniquement : le badge « Certifiés » doit être vrai
+  const validStores = topStores.filter((s) => !s.is_archived && s.is_verified).slice(0, 2);
 
   const hasFlash = validFlashSales.length > 0;
   const hasTrends = validTrends.length > 0;
@@ -101,7 +102,7 @@ export function PromoDealsGrid({
             BLOCK 1: VENTES FLASH (Exclusivement de la table flash_sales)
         ════════════════════════════════════════════════════════════════ */}
         {hasFlash && (
-          <div className="bg-gradient-to-br from-red-950 via-neutral-900 to-black text-white p-4 sm:p-5 rounded-2xl border border-red-900/40 shadow-sm flex flex-col justify-between">
+          <div id="ventes-flash" className="scroll-mt-28 bg-gradient-to-br from-red-950 via-neutral-900 to-black text-white p-4 sm:p-5 rounded-2xl border border-red-900/40 shadow-sm flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-red-900/40">
                 <div className="flex items-center gap-2">
@@ -120,14 +121,16 @@ export function PromoDealsGrid({
                 </div>
 
                 {/* Countdown badge */}
-                <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold text-amber-400 border border-amber-500/30">
-                  <Clock className="w-2.5 h-2.5" />
-                  <span>
-                    {String(timeLeft.hours).padStart(2, '0')}:
-                    {String(timeLeft.minutes).padStart(2, '0')}:
-                    {String(timeLeft.seconds).padStart(2, '0')}
-                  </span>
-                </div>
+                {timeLeft && (
+                  <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold text-amber-400 border border-amber-500/30">
+                    <Clock className="w-2.5 h-2.5" />
+                    <span>
+                      {String(timeLeft.hours).padStart(2, '0')}:
+                      {String(timeLeft.minutes).padStart(2, '0')}:
+                      {String(timeLeft.seconds).padStart(2, '0')}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Horizontal Swipeable Slider on Mobile */}
@@ -152,9 +155,9 @@ export function PromoDealsGrid({
                     >
                       <div className="relative w-14 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-800 border border-red-500/30">
                         <Image src={img} alt={p.title} fill className="object-cover" sizes="56px" />
-                        <span className="absolute top-0 left-0 bg-red-600 text-white text-[8px] font-black px-1 py-0.5 rounded-br flex items-center gap-0.5">
-                          <Zap className="w-2 h-2 fill-white" />
-                          {discount > 0 ? `-${discount}%` : 'FLASH'}
+                        <span className="absolute top-0 left-0 bg-amber-400 text-black text-[8px] font-black px-1 py-0.5 rounded-br flex items-center gap-0.5">
+                          <Zap className="w-2 h-2 fill-black" />
+                          {discount > 0 ? `FLASH -${discount}%` : 'FLASH'}
                         </span>
                       </div>
 
@@ -198,7 +201,7 @@ export function PromoDealsGrid({
 
                       <button
                         type="button"
-                        onClick={(e) => handleAddToCart(e, p, flashPrice)}
+                        onClick={(e) => handleAddToCart(e, p, sale)}
                         className={`p-2 rounded-lg transition shadow-xs flex-shrink-0 ${
                           addedId === p.id ? 'bg-emerald-600 text-white' : 'bg-red-600 hover:bg-red-700 text-white'
                         }`}
@@ -332,7 +335,7 @@ export function PromoDealsGrid({
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                         </h4>
                         <p className="text-[9px] text-neutral-400">
-                          {st.city || 'Lubumbashi'} • 4.9 ★
+                          {st.city || 'Lubumbashi'}
                         </p>
                       </div>
                     </div>

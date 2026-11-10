@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { X, Trash2, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { useCartStore, cartUnitPriceUsd } from '@/lib/stores/useCartStore';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 
@@ -116,7 +116,7 @@ export function CartDrawer() {
 
                         <div className="text-right">
                           <p className="text-xs font-bold text-brand-black">
-                            {formatPrice(item.product.price_usd * item.quantity)}
+                            {formatPrice(cartUnitPriceUsd(item) * item.quantity)}
                           </p>
                           <button
                             type="button"

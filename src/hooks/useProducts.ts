@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { ProductService } from '@/lib/services/ProductService';
 
 export function useProducts(options?: {
@@ -12,6 +12,16 @@ export function useProducts(options?: {
     queryKey: ['products', options],
     queryFn: () => ProductService.getAll(options),
     staleTime: 1000 * 60 * 2, // 2 minutes
+    placeholderData: keepPreviousData, // « Voir plus » sans vider la grille
+  });
+}
+
+/** Tendances indépendantes des filtres de la grille */
+export function useTrendingProducts(limit = 8) {
+  return useQuery({
+    queryKey: ['trending-products', limit],
+    queryFn: () => ProductService.getTrendingProducts(limit),
+    staleTime: 1000 * 60 * 5,
   });
 }
 

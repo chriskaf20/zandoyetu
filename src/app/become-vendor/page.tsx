@@ -17,11 +17,35 @@ import {
   Truck, 
   AlertCircle,
   TrendingUp,
-  Award
+  Award,
+  Calendar
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { supabase } from '@/lib/supabase/client';
 import { MerchantApplication } from '@/types/schema';
+
+/** Date locale au format AAAA-MM-JJ (format de merchant_applications.date_of_birth) */
+const toIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const yearsAgo = (years: number) => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return toIsoDate(d);
+};
+
+/** Dernière candidature du compte (en attente, refusée ou approuvée) */
+async function fetchLatestApplication(userId: string): Promise<MerchantApplication | null> {
+  const { data, error } = await supabase
+    .from('merchant_applications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as MerchantApplication | null) ?? null;
+}
 
 const CITIES = [
   'Lubumbashi',
@@ -43,26 +67,28 @@ const PRODUCT_FOCUSES = [
   'Cosmétiques, Beauté & Parfums'
 ];
 
+/** value = valeurs autorisées par merchant_applications_fulfillment_type_check */
 const FULFILLMENT_TYPES = [
-  'Livraison Standard Zando Yetu',
-  'Retrait direct en magasin physique (Pickup)',
-  'Livraison Express & Pickup Combinés'
+  { value: 'Stock à Domicile', label: 'Je vends depuis chez moi (stock à domicile)' },
+  { value: 'Boutique Physique', label: "J'ai une boutique physique (retrait possible sur place)" },
 ];
 
 export default function BecomeVendorPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const fetchProfile = useAuthStore((s) => s.fetchProfile);
 
   const [loading, setLoading] = useState(true);
   const [existingApp, setExistingApp] = useState<MerchantApplication | null>(null);
 
   // Form State
   const [fullName, setFullName] = useState(user?.full_name || '');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [storeName, setStoreName] = useState('');
   const [phone, setPhone] = useState(user?.phone || '');
   const [city, setCity] = useState('Lubumbashi');
   const [productFocus, setProductFocus] = useState(PRODUCT_FOCUSES[0]);
-  const [fulfillmentType, setFulfillmentType] = useState(FULFILLMENT_TYPES[0]);
+  const [fulfillmentType, setFulfillmentType] = useState(FULFILLMENT_TYPES[0].value);
   const [notes, setNotes] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
@@ -80,16 +106,23 @@ export default function BecomeVendorPage() {
 
     const checkExistingApplication = async () => {
       try {
-        const { data, error } = await supabase
-          .from('merchant_applications')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const app = await fetchLatestApplication(user.id);
+        if (!app) return;
+        setExistingApp(app);
 
-        if (!error && data) {
-          setExistingApp(data as MerchantApplication);
+        if (app.status === 'rejected') {
+          // Pré-remplit le formulaire pour une nouvelle candidature
+          setFullName(app.full_name);
+          setDateOfBirth(app.date_of_birth || '');
+          setStoreName(app.store_name);
+          setPhone(app.phone || user.phone || '');
+          if (CITIES.includes(app.operational_city)) setCity(app.operational_city);
+          if (PRODUCT_FOCUSES.includes(app.product_focus)) setProductFocus(app.product_focus);
+          if (FULFILLMENT_TYPES.some((ft) => ft.value === app.fulfillment_type)) setFulfillmentType(app.fulfillment_type);
+          setNotes(app.notes || '');
+        } else if (app.status === 'approved' && user.role === 'customer') {
+          // Rôle vendeur attribué par l'admin : le profil en cache est encore « customer »
+          await fetchProfile(user.id);
         }
       } catch (err) {
         console.error('Error fetching merchant application:', err);
@@ -99,7 +132,7 @@ export default function BecomeVendorPage() {
     };
 
     checkExistingApplication();
-  }, [user]);
+  }, [user, fetchProfile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,45 +141,97 @@ export default function BecomeVendorPage() {
       return;
     }
 
-    if (!storeName.trim() || !phone.trim() || !fullName.trim()) {
+    if (!storeName.trim() || !phone.trim() || !fullName.trim() || !dateOfBirth) {
       setErrorMsg('Veuillez remplir tous les champs obligatoires.');
       return;
     }
+
+    if (storeName.trim().length < 2 || fullName.trim().length < 2) {
+      setErrorMsg('Le nom du responsable et le nom de la boutique doivent contenir au moins 2 caractères.');
+      return;
+    }
+
+    // Mêmes règles que le trigger merchant_applications_validate
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) || dateOfBirth < yearsAgo(100)) {
+      setErrorMsg('Date de naissance invalide.');
+      return;
+    }
+    if (dateOfBirth > yearsAgo(18)) {
+      setErrorMsg('Le responsable de la boutique doit être majeur (18 ans révolus).');
+      return;
+    }
+
+    // Numéro congolais : 0XXXXXXXXX, 243XXXXXXXXX ou +243XXXXXXXXX → +243XXXXXXXXX
+    const phoneDigits = phone.replace(/[^0-9]/g, '');
+    const nationalNumber = phoneDigits.startsWith('243')
+      ? phoneDigits.slice(3)
+      : phoneDigits.startsWith('0')
+        ? phoneDigits.slice(1)
+        : phoneDigits;
+    if (!/^[89]\d{8}$/.test(nationalNumber)) {
+      setErrorMsg('Numéro invalide. Exemple : 0812345678 ou +243 812 345 678 (Vodacom, Airtel, Orange, Africell).');
+      return;
+    }
+    const normalizedPhone = `+243${nationalNumber}`;
 
     setSubmitting(true);
     setErrorMsg(null);
 
     try {
+      // Colonnes de public.merchant_applications (cf. supabase/hotfix_merchant_applications.sql)
       const payload = {
         user_id: user.id,
         full_name: fullName.trim(),
+        date_of_birth: dateOfBirth,
         store_name: storeName.trim(),
         operational_city: city,
         product_focus: productFocus,
         fulfillment_type: fulfillmentType,
-        status: 'pending',
+        // Repris comme téléphone public de la boutique à la validation
+        phone: normalizedPhone,
+        notes: notes.trim() || null,
+        status: 'pending' as const,
       };
 
-      const { data, error } = await (supabase
+      const { data, error } = await supabase
         .from('merchant_applications')
-        .insert(payload as any)
+        .insert(payload)
         .select()
-        .single() as any);
+        .single();
 
       if (error) throw error;
 
       // Optimistically update user's phone if missing
-      if (!user.phone && phone.trim()) {
+      if (!user.phone) {
         await supabase
           .from('users')
-          .update({ phone: phone.trim(), local_updated_at: new Date().toISOString() })
+          .update({ phone: normalizedPhone, local_updated_at: new Date().toISOString() })
           .eq('id', user.id);
       }
 
       setSubmittedApp(data as MerchantApplication);
     } catch (err: any) {
       console.error('Error submitting application:', err);
-      setErrorMsg(err.message || 'Échec de la soumission de la candidature. Veuillez réessayer.');
+      // Messages techniques Postgres/PostgREST traduits pour le candidat
+      const code = err?.code as string | undefined;
+      const message = String(err?.message || '');
+
+      if (code === '23505') {
+        // Une candidature est déjà en attente pour ce compte : on l'affiche
+        const latest = await fetchLatestApplication(user.id).catch(() => null);
+        if (latest) setExistingApp(latest);
+        setErrorMsg("Vous avez déjà une candidature en cours d'examen.");
+      } else if (code === '23514' && /majeur|Date de naissance/.test(message)) {
+        setErrorMsg(message);
+      } else if (code === '23514') {
+        setErrorMsg('Certaines informations sont invalides. Vérifiez le numéro WhatsApp, la date de naissance et le nom de la boutique (2 à 80 caractères).');
+      } else if (code === '42501') {
+        setErrorMsg('Votre session a expiré. Reconnectez-vous puis renvoyez votre candidature.');
+      } else if (code === '23502' || code === 'PGRST204' || code === '42703') {
+        setErrorMsg('Le service de candidature est en cours de mise à jour. Réessayez dans quelques minutes ou contactez le support.');
+      } else {
+        setErrorMsg('Échec de la soumission de la candidature. Veuillez réessayer.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -217,8 +302,38 @@ export default function BecomeVendorPage() {
     );
   }
 
-  // If application was just submitted or existing pending application found
-  const activeApp = submittedApp || existingApp;
+  const latestApp = submittedApp || existingApp;
+  const rejectedApp = latestApp?.status === 'rejected' ? latestApp : null;
+
+  // Candidature approuvée : le rôle vendeur est attribué, le profil en cache se met à jour
+  if (latestApp?.status === 'approved') {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-600 mx-auto mb-4">
+          <CheckCircle2 className="w-8 h-8" />
+        </div>
+        <h1 className="font-serif text-2xl font-bold text-brand-black mb-2">
+          Candidature Approuvée !
+        </h1>
+        <p className="text-xs text-brand-gray max-w-md mx-auto mb-6">
+          La boutique <strong className="text-brand-black">"{latestApp.store_name}"</strong> est validée. Votre compte vendeur est actif : ajoutez vos premiers articles depuis votre tableau de bord.
+        </p>
+        <Link
+          href="/vendor/dashboard"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-brand-black hover:bg-neutral-800 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition shadow-sm"
+        >
+          <span>Ouvrir mon Dashboard Vendeur</span>
+          <ArrowRight className="w-4 h-4" />
+        </Link>
+        <p className="text-[11px] text-brand-gray mt-4">
+          Le tableau de bord ne s'ouvre pas ? Déconnectez-vous puis reconnectez-vous.
+        </p>
+      </div>
+    );
+  }
+
+  // Candidature en attente de validation par l'administration
+  const activeApp = latestApp?.status === 'pending' ? latestApp : null;
   if (activeApp) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16">
@@ -368,6 +483,17 @@ export default function BecomeVendorPage() {
           </div>
         )}
 
+        {rejectedApp && (
+          <div className="p-3.5 mb-6 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>
+              Votre candidature du{' '}
+              {new Date(rejectedApp.reviewed_at || rejectedApp.created_at).toLocaleDateString('fr-FR', { dateStyle: 'long' })}{' '}
+              pour « {rejectedApp.store_name} » n'a pas été retenue. Corrigez vos informations ci-dessous pour postuler à nouveau, ou contactez le support WhatsApp.
+            </span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Full Name */}
@@ -381,8 +507,30 @@ export default function BecomeVendorPage() {
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Ex: Jean Mukendi"
                 required
+                minLength={2}
+                maxLength={120}
                 className="w-full px-3.5 py-2.5 text-xs bg-brand-lightGray border border-brand-border rounded-xl focus:border-brand-black focus:bg-white focus:outline-none transition"
               />
+            </div>
+
+            {/* Date of Birth */}
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-brand-black mb-1.5">
+                Date de Naissance du Responsable *
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                  min={yearsAgo(100)}
+                  max={yearsAgo(18)}
+                  required
+                  className="w-full pl-9 pr-3.5 py-2.5 text-xs bg-brand-lightGray border border-brand-border rounded-xl focus:border-brand-black focus:bg-white focus:outline-none transition"
+                />
+                <Calendar className="w-4 h-4 text-brand-gray absolute left-3 top-3 pointer-events-none" />
+              </div>
+              <p className="text-[10px] text-brand-gray mt-1">Le responsable doit avoir 18 ans révolus.</p>
             </div>
 
             {/* Store Name */}
@@ -396,6 +544,8 @@ export default function BecomeVendorPage() {
                 onChange={(e) => setStoreName(e.target.value)}
                 placeholder="Ex: Élégance Lubumbashi, Katanga Glam..."
                 required
+                minLength={2}
+                maxLength={80}
                 className="w-full px-3.5 py-2.5 text-xs bg-brand-lightGray border border-brand-border rounded-xl focus:border-brand-black focus:bg-white focus:outline-none transition font-semibold"
               />
             </div>
@@ -417,7 +567,9 @@ export default function BecomeVendorPage() {
                 <Phone className="w-4 h-4 text-brand-gray absolute left-3 top-3" />
               </div>
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* City */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-brand-black mb-1.5">
@@ -436,9 +588,7 @@ export default function BecomeVendorPage() {
                 <MapPin className="w-4 h-4 text-brand-gray absolute left-3 top-3 pointer-events-none" />
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Product Focus */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-brand-black mb-1.5">
@@ -459,9 +609,9 @@ export default function BecomeVendorPage() {
             </div>
 
             {/* Fulfillment Type */}
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-brand-black mb-1.5">
-                Mode de Distribution Prévu *
+                Type de Vendeur *
               </label>
               <div className="relative">
                 <select
@@ -470,7 +620,7 @@ export default function BecomeVendorPage() {
                   className="w-full pl-9 pr-3.5 py-2.5 text-xs bg-brand-lightGray border border-brand-border rounded-xl focus:border-brand-black focus:bg-white focus:outline-none transition cursor-pointer"
                 >
                   {FULFILLMENT_TYPES.map((ft) => (
-                    <option key={ft} value={ft}>{ft}</option>
+                    <option key={ft.value} value={ft.value}>{ft.label}</option>
                   ))}
                 </select>
                 <Truck className="w-4 h-4 text-brand-gray absolute left-3 top-3 pointer-events-none" />
@@ -487,9 +637,11 @@ export default function BecomeVendorPage() {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
+              maxLength={1000}
               placeholder="Décrivez brièvement vos créations, votre emplacement physique ou vos liens Instagram / Facebook..."
               className="w-full px-3.5 py-2.5 text-xs bg-brand-lightGray border border-brand-border rounded-xl focus:border-brand-black focus:bg-white focus:outline-none transition resize-none"
             />
+            <p className="text-[10px] text-brand-gray text-right mt-1">{notes.length} / 1000</p>
           </div>
 
           {/* Trust Statement */}

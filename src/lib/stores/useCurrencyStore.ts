@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { formatPriceValue, formatPriceCDF, formatPriceUSD } from '@/lib/utils/currency';
+import { DEFAULT_EXCHANGE_RATE, formatPriceValue, formatPriceCDF, formatPriceUSD } from '@/lib/utils/currency';
 
 interface CurrencyState {
   currency: 'USD' | 'CDF';
@@ -16,9 +16,9 @@ export const useCurrencyStore = create<CurrencyState>()(
   persist(
     (set, get) => ({
       currency: 'USD',
-      exchangeRate: 2850,
+      exchangeRate: DEFAULT_EXCHANGE_RATE,
       setCurrency: (currency) => set({ currency }),
-      setExchangeRate: (exchangeRate) => set({ exchangeRate: exchangeRate || 2850 }),
+      setExchangeRate: (exchangeRate) => set({ exchangeRate: exchangeRate || DEFAULT_EXCHANGE_RATE }),
       formatPrice: (amountUsd) => {
         const { currency, exchangeRate } = get();
         return formatPriceValue(amountUsd, currency, exchangeRate);

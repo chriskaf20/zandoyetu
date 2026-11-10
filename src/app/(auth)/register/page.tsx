@@ -6,12 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
+import { safeRedirectPath } from '@/lib/utils/safeRedirect';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 function RegisterContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/';
+  const redirect = safeRedirectPath(searchParams.get('redirect'));
 
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
   const { t } = useLanguageStore();

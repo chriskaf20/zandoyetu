@@ -1,4 +1,10 @@
-export let MARKET_EXCHANGE_RATE = 2850;
+/**
+ * Taux de repli tant que platform_settings n'est pas chargé.
+ * Doit rester aligné sur la valeur par défaut de la base (platform_settings.exchange_rate).
+ */
+export const DEFAULT_EXCHANGE_RATE = 2300;
+
+export let MARKET_EXCHANGE_RATE = DEFAULT_EXCHANGE_RATE;
 
 export function setActiveExchangeRate(rate: number) {
   if (rate > 0 && !isNaN(rate)) {
@@ -18,7 +24,7 @@ export function calculateEstimate(amount: number, from: 'USD' | 'CDF', rate: num
 }
 
 export function formatPriceCDF(priceUsd: number, exchangeRate: number = MARKET_EXCHANGE_RATE): string {
-  const totalCdf = Math.round(priceUsd * (exchangeRate || 2850));
+  const totalCdf = Math.round(priceUsd * (exchangeRate || DEFAULT_EXCHANGE_RATE));
   return new Intl.NumberFormat('fr-CD').format(totalCdf) + ' FC';
 }
 
@@ -39,7 +45,7 @@ export function formatPriceValue(
   if (currency === 'USD') {
     return '$' + amountUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   } else {
-    const cdf = Math.round(amountUsd * (rate || 2850));
+    const cdf = Math.round(amountUsd * (rate || DEFAULT_EXCHANGE_RATE));
     return cdf.toLocaleString('fr-FR') + ' CDF';
   }
 }

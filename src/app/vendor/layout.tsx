@@ -34,7 +34,7 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
   }
 
   // Check vendor or admin role
-  const isVendorOrAdmin = user && (user.role === 'vendor' || user.role === 'admin' || user.email?.includes('admin'));
+  const isVendorOrAdmin = user?.role === 'vendor' || user?.role === 'admin';
 
   if (!user || !isVendorOrAdmin) {
     return (

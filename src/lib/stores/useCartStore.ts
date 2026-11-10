@@ -1,28 +1,55 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { CartItem } from '@/types/cart';
-import { Product, Coupon } from '@/types/schema';
+import { CartFlashPrice, CartItem } from '@/types/cart';
+import { Product, Coupon, FlashSale } from '@/types/schema';
 import { supabase } from '@/lib/supabase/client';
+import { DeliveryZone, deliveryFeeForZone } from '@/lib/services/DeliveryZoneService';
+
+/** 1 point de fidélité = 0,20 $ (même valeur que rpc_process_checkout) */
+export const POINT_VALUE_USD = 0.2;
+
+export type FulfillmentType = 'Cash on Delivery' | 'In-Store Pickup';
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Prix unitaire affiché : prix flash tant que la vente court, sinon prix catalogue */
+export function cartUnitPriceUsd(item: CartItem, now = Date.now()): number {
+  if (item.flash && new Date(item.flash.end_time).getTime() > now) {
+    return item.flash.price_usd;
+  }
+  return item.product.price_usd;
+}
+
+export function flashFromSale(sale: FlashSale | null | undefined): CartFlashPrice | null {
+  if (!sale) return null;
+  return { flash_sale_id: sale.id, price_usd: sale.flash_price_usd, end_time: sale.end_time };
+}
 
 interface CartState {
   items: CartItem[];
   activeCoupon: Coupon | null;
   pointsToRedeem: number;
-  deliveryType: 'Cash on Delivery' | 'In-Store Pickup';
+  /** Livraison à domicile ou retrait en boutique */
+  deliveryType: FulfillmentType;
+  deliveryZone: DeliveryZone | null;
   isCartDrawerOpen: boolean;
   setCartDrawerOpen: (isOpen: boolean) => void;
-  addItem: (product: Product, size?: string, color?: string, quantity?: number) => void;
+  addItem: (product: Product, size?: string, color?: string, quantity?: number, flash?: CartFlashPrice | null) => void;
   removeItem: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   clearCart: () => void;
-  setDeliveryType: (type: 'Cash on Delivery' | 'In-Store Pickup') => void;
+  setDeliveryType: (type: FulfillmentType) => void;
+  setDeliveryZone: (zone: DeliveryZone | null) => void;
   setPointsToRedeem: (points: number) => void;
   applyCoupon: (code: string) => Promise<{ success: boolean; message: string }>;
   removeCoupon: () => void;
+  /** Remplace les instantanés produit/flash par les données serveur (prix, stock, statut) */
+  syncWithCatalog: (products: Product[], activeFlash: Map<string, FlashSale>) => { removed: number; changed: number };
   getItemCount: () => number;
   getSubtotalUsd: () => number;
   getDeliveryFeeUsd: () => number;
   getPromoDiscountUsd: () => number;
+  getPointsUsed: () => number;
   getPointsDiscountUsd: () => number;
   getTotalUsd: () => number;
 }
@@ -34,13 +61,20 @@ export const useCartStore = create<CartState>()(
       activeCoupon: null,
       pointsToRedeem: 0,
       deliveryType: 'Cash on Delivery',
+      deliveryZone: null,
       isCartDrawerOpen: false,
 
       setCartDrawerOpen: (isCartDrawerOpen) => set({ isCartDrawerOpen }),
 
-      addItem: (product, size, color, quantity = 1) => {
+      addItem: (product, size, color, quantity = 1, flash = null) => {
         set((state) => {
-          const selectedSize = size || (product.sizes_json ? JSON.parse(product.sizes_json)[0] : 'Unique');
+          let defaultSize = 'Unique';
+          try {
+            defaultSize = product.sizes_json ? JSON.parse(product.sizes_json)[0] || 'Unique' : 'Unique';
+          } catch {
+            // sizes_json mal formé : taille unique
+          }
+          const selectedSize = size || defaultSize;
           const selectedColor = color || (product.colors_json && product.colors_json[0]) || 'Standard';
           const itemId = `${product.id}-${selectedSize}-${selectedColor}`;
 
@@ -58,7 +92,9 @@ export const useCartStore = create<CartState>()(
             const updated = [...state.items];
             updated[existingIndex] = {
               ...updated[existingIndex],
+              product,
               quantity: updated[existingIndex].quantity + quantity,
+              flash: flash ?? updated[existingIndex].flash ?? null,
             };
             return { items: updated, isCartDrawerOpen: true };
           }
@@ -72,6 +108,7 @@ export const useCartStore = create<CartState>()(
                 quantity,
                 selected_size: selectedSize,
                 selected_color: selectedColor,
+                flash,
               },
             ],
             isCartDrawerOpen: true,
@@ -110,7 +147,9 @@ export const useCartStore = create<CartState>()(
 
       setDeliveryType: (deliveryType) => set({ deliveryType }),
 
-      setPointsToRedeem: (pointsToRedeem) => set({ pointsToRedeem }),
+      setDeliveryZone: (deliveryZone) => set({ deliveryZone }),
+
+      setPointsToRedeem: (pointsToRedeem) => set({ pointsToRedeem: Math.max(0, Math.floor(pointsToRedeem)) }),
 
       applyCoupon: async (code) => {
         const trimmed = code.trim().toUpperCase();
@@ -119,26 +158,29 @@ export const useCartStore = create<CartState>()(
         }
 
         try {
-          const { data, error } = await (supabase
-            .from('coupons')
-            .select('*')
-            .eq('code', trimmed)
-            .eq('status', 'active')
-            .maybeSingle() as any);
+          // Validation serveur : la liste des codes n'est pas lisible par les clients
+          const { data, error } = await supabase.rpc('validate_coupon', { p_code: trimmed });
+          const result = data as any;
 
-          if (error || !data) {
-            return { success: false, message: 'Code promo invalide ou expiré.' };
+          if (error || !result?.valid) {
+            return { success: false, message: result?.message || 'Code promo invalide ou expiré.' };
           }
 
           const coupon: Coupon = {
-            id: data.id,
-            code: data.code,
-            discount_percent: data.discount_percent,
-            store_id: data.store_id,
-            status: data.status as 'active',
-            created_by: data.created_by,
-            created_at: data.created_at,
+            id: result.id,
+            code: result.code,
+            discount_percent: result.discount_percent,
+            store_id: result.store_id,
+            vendor_id: result.vendor_id,
+            status: 'active',
+            created_by: result.created_by,
+            created_at: result.created_at,
           };
+
+          const applies = !coupon.store_id || get().items.some((i) => i.product.vendor_id === coupon.vendor_id);
+          if (!applies) {
+            return { success: false, message: 'Ce code promo ne concerne aucune boutique de votre panier.' };
+          }
 
           set({ activeCoupon: coupon });
           return { success: true, message: `Code ${coupon.code} appliqué (-${coupon.discount_percent}%)!` };
@@ -149,35 +191,71 @@ export const useCartStore = create<CartState>()(
 
       removeCoupon: () => set({ activeCoupon: null }),
 
+      syncWithCatalog: (products, activeFlash) => {
+        const byId = new Map(products.map((p) => [p.id, p]));
+        let removed = 0;
+        let changed = 0;
+
+        const items = get().items.flatMap((item) => {
+          const fresh = byId.get(item.product.id);
+          if (!fresh || fresh.status !== 'active' || fresh.stock_count <= 0) {
+            removed += 1;
+            return [];
+          }
+          const flash = flashFromSale(activeFlash.get(fresh.id));
+          const before = cartUnitPriceUsd(item);
+          const next: CartItem = {
+            ...item,
+            product: fresh,
+            flash,
+            quantity: Math.min(item.quantity, fresh.stock_count),
+          };
+          if (cartUnitPriceUsd(next) !== before || next.quantity !== item.quantity) changed += 1;
+          return [next];
+        });
+
+        set({ items });
+        return { removed, changed };
+      },
+
       getItemCount: () => {
         return get().items.reduce((sum, item) => sum + item.quantity, 0);
       },
 
       getSubtotalUsd: () => {
-        return get().items.reduce((sum, item) => sum + item.product.price_usd * item.quantity, 0);
+        return round2(get().items.reduce((sum, item) => sum + cartUnitPriceUsd(item) * item.quantity, 0));
       },
 
       getDeliveryFeeUsd: () => {
-        const { deliveryType, getSubtotalUsd } = get();
+        const { deliveryType, deliveryZone, getSubtotalUsd } = get();
         if (deliveryType === 'In-Store Pickup') return 0;
-        return getSubtotalUsd() >= 50 ? 0 : 5.0;
+        return deliveryFeeForZone(deliveryZone, getSubtotalUsd());
       },
 
       getPromoDiscountUsd: () => {
         const { activeCoupon, items } = get();
         if (!activeCoupon) return 0;
 
-        let applicableSubtotal = 0;
-        items.forEach((item) => {
-          applicableSubtotal += item.product.price_usd * item.quantity;
-        });
+        // Même règle que le serveur : coupon boutique = articles de ce vendeur uniquement
+        return round2(
+          items
+            .filter((item) => !activeCoupon.store_id || item.product.vendor_id === activeCoupon.vendor_id)
+            .reduce(
+              (sum, item) =>
+                sum + round2(cartUnitPriceUsd(item) * item.quantity * (activeCoupon.discount_percent / 100)),
+              0
+            )
+        );
+      },
 
-        return Math.round(applicableSubtotal * (activeCoupon.discount_percent / 100) * 100) / 100;
+      getPointsUsed: () => {
+        const { pointsToRedeem, getSubtotalUsd, getPromoDiscountUsd } = get();
+        const remaining = Math.max(0, getSubtotalUsd() - getPromoDiscountUsd());
+        return Math.min(pointsToRedeem, Math.floor(remaining / POINT_VALUE_USD));
       },
 
       getPointsDiscountUsd: () => {
-        const { pointsToRedeem } = get();
-        return Math.round(pointsToRedeem * 0.20 * 100) / 100;
+        return round2(get().getPointsUsed() * POINT_VALUE_USD);
       },
 
       getTotalUsd: () => {
@@ -185,11 +263,26 @@ export const useCartStore = create<CartState>()(
         const delivery = get().getDeliveryFeeUsd();
         const promo = get().getPromoDiscountUsd();
         const points = get().getPointsDiscountUsd();
-        return Math.max(0, Math.round((subtotal + delivery - promo - points) * 100) / 100);
+        return Math.max(0, round2(subtotal + delivery - promo - points));
       },
     }),
     {
       name: 'zando-cart-storage',
+      version: 2,
+      partialize: (state) => ({
+        items: state.items,
+        activeCoupon: state.activeCoupon,
+        pointsToRedeem: state.pointsToRedeem,
+        deliveryType: state.deliveryType,
+        deliveryZone: state.deliveryZone,
+      }),
+      // v1 : prix flash injectés dans product.price_usd, coupon sans vendor_id
+      migrate: (persisted: any) => ({
+        ...persisted,
+        items: (persisted?.items || []).map((i: CartItem) => ({ ...i, flash: i.flash ?? null })),
+        activeCoupon: null,
+        deliveryZone: null,
+      }),
     }
   )
 );

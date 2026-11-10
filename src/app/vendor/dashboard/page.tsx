@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   Package,
   ShoppingBag,
@@ -41,50 +42,64 @@ import {
   Wand2,
   Eye,
   ExternalLink,
+  Printer,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { VendorService, CreateProductInput, VendorCoupon, VendorFinancials } from '@/lib/services/VendorService';
 import { PlatformSettingsService } from '@/lib/services/PlatformSettingsService';
-import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale } from '@/types/schema';
+import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale, Category } from '@/types/schema';
+import { DEFAULT_EXCHANGE_RATE } from '@/lib/utils/currency';
+import { compressImage, blobToDataUrl } from '@/lib/utils/imageCompression';
+import { useCategories } from '@/hooks/useCategories';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 type VendorTab = 'catalogue' | 'orders' | 'profile' | 'financials' | 'promotions';
-type OrderStatusFilter = 'all' | 'pending' | 'processing' | 'shipped' | 'completed' | 'cancelled';
+type OrderStatusFilter = 'all' | 'pending' | 'approved' | 'processing' | 'shipped' | 'completed' | 'cancelled';
 type ProductStatusFilter = 'active' | 'archived' | 'all';
 
-const HIERARCHICAL_TAXONOMY: Record<string, { label: string; gender: 'women' | 'men' | 'mixte'; subs: string[] }> = {
-  'femme': {
-    label: 'Mode Femme',
-    gender: 'women',
-    subs: ['Robes & Ensembles', 'Hauts & Chemisiers', 'Pantalons & Jupes', 'Lingerie & Nuit', 'Créateurs & Wax', 'Tops & T-shirts', 'Jupes', 'Maillots'],
-  },
-  'homme': {
-    label: 'Mode Homme',
-    gender: 'men',
-    subs: ['Chemises & Polos', 'Pantalons & Jeans', 'Costumes & Blazers', 'Streetwear & T-shirts', 'Hoodies & Sweats', 'Vestes & Manteaux', 'Sous-vêtements'],
-  },
-  'chaussures': {
-    label: 'Chaussures',
-    gender: 'mixte',
-    subs: ['Baskets & Sneakers', 'Escarpins & Talons', 'Sandales & Mules', 'Mocassins & Cuir', 'Bottes & Bottines', 'Chaussons'],
-  },
-  'sacs': {
-    label: 'Sacs & Maroquinerie',
-    gender: 'mixte',
-    subs: ['Sacs à main', 'Sacs à dos & Randonnée', 'Pochettes & Soirée', 'Portefeuilles & Porte-cartes', 'Valises & Voyage'],
-  },
-  'accessoires': {
-    label: 'Accessoires & Bijoux',
-    gender: 'mixte',
-    subs: ['Montres de Luxe & Smart', 'Bijoux, Colliers & Boucles', 'Lunettes de Soleil', 'Ceintures en Cuir', 'Chapeaux & Casquettes'],
-  },
-  'beaute': {
-    label: 'Beauté & Soins',
-    gender: 'mixte',
-    subs: ['Parfums & Brumes', 'Maquillage & Teint', 'Soins Visage & Corps', 'Soins Capillaires & Perruques'],
-  },
+interface VendorUniverse {
+  label: string;
+  gender: 'women' | 'men' | 'mixte';
+  /** name = valeur enregistrée dans products.category, label = libellé affiché */
+  subs: { id: string; name: string; label: string }[];
+}
+
+const UNIVERSE_GENDER: Record<string, 'women' | 'men'> = {
+  femme: 'women',
+  women: 'women',
+  curve: 'women',
+  homme: 'men',
+  men: 'men',
 };
+
+/** Univers (niveau 1) et sous-catégories (niveaux 2 et 3) issus de la table categories */
+function buildVendorTaxonomy(categories: Category[]): Record<string, VendorUniverse> {
+  const order = (a: Category, b: Category) =>
+    (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name);
+
+  const childrenOf = new Map<string, Category[]>();
+  for (const c of categories) {
+    if (!c.parent_id) continue;
+    const list = childrenOf.get(c.parent_id) || [];
+    list.push(c);
+    childrenOf.set(c.parent_id, list);
+  }
+
+  const result: Record<string, VendorUniverse> = {};
+  for (const root of categories.filter((c) => !c.parent_id && c.slug).sort(order)) {
+    const subs: VendorUniverse['subs'] = [];
+    for (const child of (childrenOf.get(root.id) || []).sort(order)) {
+      subs.push({ id: child.id, name: child.name, label: child.name });
+      for (const leaf of (childrenOf.get(child.id) || []).sort(order)) {
+        subs.push({ id: leaf.id, name: leaf.name, label: `${child.name} › ${leaf.name}` });
+      }
+    }
+    const slug = root.slug as string;
+    result[slug] = { label: root.name, gender: UNIVERSE_GENDER[slug] || 'mixte', subs };
+  }
+  return result;
+}
 
 const QUICK_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', 'Taille Unique'];
 const SHOE_SIZES = ['37', '38', '39', '40', '41', '42', '43', '44', '45', '46'];
@@ -93,6 +108,8 @@ const QUICK_COLORS = ['Noir', 'Blanc', 'Rouge', 'Bleu', 'Vert', 'Doré', 'Argent
 const LUBUMBASHI_COMMUNES = ['Lubumbashi', 'Annexe', 'Kampemba', 'Katuba', 'Kenya', 'Kamalondo', 'Ruashi'];
 
 const DELIVERY_TIMES = ['24h - 48h', '2 - 3 jours', '3 - 5 jours', '5 - 7 jours', 'Sur commande (7+ jours)'];
+
+const STUDIO_NOT_SEGMENTED_MESSAGE = 'Fond non retiré : la photo a été recadrée en 3:4 sans détourage. Essayez une photo du produit sur fond uni.';
 
 const ORDER_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
   pending:                   { label: 'En attente',    bg: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200' },
@@ -118,6 +135,7 @@ function emptyProductForm(): CreateProductInput {
     title: '',
     description: '',
     category: '',
+    category_id: null,
     price_usd: 0,
     price_cdf: 0,
     compare_at_price: null,
@@ -328,6 +346,8 @@ function RevenueChart({ data, mode }: { data: VendorDailyRevenue[]; mode: 'usd' 
 
 export default function VendorDashboardPage() {
   const user = useAuthStore((s) => s.user);
+  const { data: dbCategories = [] } = useCategories();
+  const taxonomy = useMemo(() => buildVendorTaxonomy(dbCategories), [dbCategories]);
 
   const [activeTab, setActiveTab] = useState<VendorTab>('catalogue');
   const [loading, setLoading] = useState(true);
@@ -335,7 +355,7 @@ export default function VendorDashboardPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // ── Dynamic Admin Exchange Rate ──
-  const [exchangeRate, setExchangeRate] = useState<number>(2850);
+  const [exchangeRate, setExchangeRate] = useState<number>(DEFAULT_EXCHANGE_RATE);
 
   // ── Core state ──
   const [store, setStore] = useState<Store | null>(null);
@@ -498,22 +518,26 @@ export default function VendorDashboardPage() {
   const openAddProduct = () => {
     setEditingProductId(null);
     setProductForm(emptyProductForm());
-    setSelectedUniverse('femme');
+    setSelectedUniverse(taxonomy.femme ? 'femme' : Object.keys(taxonomy)[0] || 'femme');
     setProductFormTab('info');
     setIsProductModalOpen(true);
   };
 
   const openEditProduct = (product: Product) => {
     setEditingProductId(product.id);
-    const matchedUniverse = Object.entries(HIERARCHICAL_TAXONOMY).find(([key, u]) =>
-      u.subs.some(s => s.toLowerCase() === (product.category || '').toLowerCase())
-    )?.[0] || (product.target_gender === 'men' ? 'homme' : 'femme');
+    const productCategory = (product.category || '').toLowerCase();
+    const isProductSub = (s: VendorUniverse['subs'][number]) =>
+      product.category_id ? s.id === product.category_id : s.name.toLowerCase() === productCategory;
+    const matchedEntry = Object.entries(taxonomy).find(([, u]) => u.subs.some(isProductSub));
+    const matchedUniverse = matchedEntry?.[0] || (product.target_gender === 'men' ? 'homme' : 'femme');
+    const matchedSub = matchedEntry?.[1].subs.find(isProductSub);
     setSelectedUniverse(matchedUniverse);
 
     setProductForm({
       title: product.title,
       description: product.description || '',
-      category: product.category || '',
+      category: matchedSub?.name || product.category || '',
+      category_id: matchedSub?.id || product.category_id || null,
       price_usd: product.price_usd,
       price_cdf: product.price_cdf || Math.round(product.price_usd * exchangeRate),
       compare_at_price: product.compare_at_price ?? null,
@@ -538,7 +562,7 @@ export default function VendorDashboardPage() {
     if (!productForm.title.trim()) { showMessage('error', 'Le nom du produit est requis.'); return; }
     if (productForm.price_usd <= 0) { showMessage('error', 'Le prix USD est requis.'); return; }
     if (productForm.stock_count < 0) { showMessage('error', 'Le stock ne peut pas être négatif.'); return; }
-    if (!productForm.category) { showMessage('error', 'Veuillez sélectionner une catégorie.'); return; }
+    if (!productForm.category || !productForm.category_id) { showMessage('error', 'Veuillez sélectionner un univers et une sous-catégorie.'); return; }
 
     setSaving(true);
     try {
@@ -578,9 +602,11 @@ export default function VendorDashboardPage() {
   const handleDeleteProduct = async (productId: string) => {
     if (!user) return;
     try {
-      await VendorService.deleteProduct(productId, user.id);
+      const outcome = await VendorService.deleteProduct(productId, user.id);
       setDeleteConfirmId(null);
-      showMessage('success', 'Article supprimé définitivement.');
+      showMessage('success', outcome === 'archived'
+        ? 'Article déjà commandé : il a été archivé (retiré du catalogue) pour garder l\'historique des commandes.'
+        : 'Article supprimé définitivement.');
       await loadData();
     } catch (err: any) {
       showMessage('error', err.message || 'Erreur lors de la suppression.');
@@ -589,10 +615,10 @@ export default function VendorDashboardPage() {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
     setUploadingImage(true);
     try {
-      const url = await VendorService.uploadImage(file, user?.id);
+      const url = await VendorService.uploadImage(file, user.id);
       setProductForm(f => ({ ...f, images_urls: [...f.images_urls, url] }));
     } catch (err: any) {
       showMessage('error', err.message || 'Erreur lors du téléchargement de l\'image.');
@@ -604,29 +630,25 @@ export default function VendorDashboardPage() {
   // ── Gemini Vision AI: Analyze image and auto-fill product fields ──────────
   const handleAiAnalyzeImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
     setAiAnalyzing(true);
     setAiError(null);
 
     try {
       // 1. Upload image to Supabase Storage for persistent URL
-      const imageUrl = await VendorService.uploadImage(file, user?.id);
+      const imageUrl = await VendorService.uploadImage(file, user.id);
       setProductForm(f => ({ ...f, images_urls: f.images_urls.includes(imageUrl) ? f.images_urls : [imageUrl, ...f.images_urls] }));
 
-      // 2. Read file as base64 for Gemini Vision
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // 2. Version allégée pour Gemini Vision (1024 px suffisent, envoi rapide en 3G/4G)
+      const visionBlob = await compressImage(file, 1024, 0.8);
+      const base64 = await blobToDataUrl(visionBlob);
 
       // 3. Call Gemini Vision API
       const res = await fetch('/api/ai/analyze-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
+        body: JSON.stringify({ imageBase64: base64, mimeType: visionBlob.type || file.type || 'image/jpeg' }),
       });
 
       const json = await res.json();
@@ -637,11 +659,18 @@ export default function VendorDashboardPage() {
       const d = json.data;
       const suggestedPriceUsd = Number(d.suggested_price_usd) || 0;
 
-      if (d.universe_slug && HIERARCHICAL_TAXONOMY[d.universe_slug]) {
-        setSelectedUniverse(d.universe_slug);
-      } else if (d.target_gender === 'men') {
-        setSelectedUniverse('homme');
-      }
+      // Rapprochement avec la taxonomie réelle (la sous-catégorie fixe aussi category_id)
+      const aiUniverseSlug = d.universe_slug && taxonomy[d.universe_slug] ? String(d.universe_slug) : null;
+      const aiCategory = String(d.category || '').trim().toLowerCase();
+      const aiMatch = aiCategory
+        ? Object.entries(taxonomy)
+            .filter(([key]) => !aiUniverseSlug || key === aiUniverseSlug)
+            .flatMap(([key, u]) => u.subs.map((sub) => ({ key, sub })))
+            .find(({ sub }) => sub.name.toLowerCase() === aiCategory)
+        : undefined;
+      const aiUniverse = aiMatch?.key || aiUniverseSlug || (d.target_gender === 'men' && taxonomy.homme ? 'homme' : null);
+      const universeChanged = !!aiUniverse && aiUniverse !== selectedUniverse;
+      if (aiUniverse) setSelectedUniverse(aiUniverse);
 
       // 4. Auto-populate form fields
       setProductForm(f => ({
@@ -654,10 +683,12 @@ export default function VendorDashboardPage() {
         desc_fr: d.desc_fr || d.description || f.desc_fr,
         desc_en: d.desc_en || f.desc_en,
         desc_sw: d.desc_sw || f.desc_sw,
-        category: d.category || f.category,
+        category: aiMatch ? aiMatch.sub.name : universeChanged ? '' : f.category,
+        category_id: aiMatch ? aiMatch.sub.id : universeChanged ? null : f.category_id,
         target_gender: (['women', 'men', 'mixte'].includes(d.target_gender) ? d.target_gender : f.target_gender) as 'women' | 'men' | 'mixte',
-        price_usd: suggestedPriceUsd > 0 ? suggestedPriceUsd : f.price_usd,
-        price_cdf: suggestedPriceUsd > 0 ? Math.round(suggestedPriceUsd * exchangeRate) : f.price_cdf,
+        // Un prix déjà saisi par le vendeur n'est jamais écrasé par la suggestion IA
+        price_usd: f.price_usd > 0 ? f.price_usd : suggestedPriceUsd > 0 ? suggestedPriceUsd : f.price_usd,
+        price_cdf: f.price_usd > 0 ? f.price_cdf : suggestedPriceUsd > 0 ? Math.round(suggestedPriceUsd * exchangeRate) : f.price_cdf,
         sizes: Array.isArray(d.sizes) && d.sizes.length > 0 ? d.sizes : f.sizes,
         colors: Array.isArray(d.colors) && d.colors.length > 0 ? d.colors : f.colors,
         material_info: d.material_info || f.material_info,
@@ -678,13 +709,14 @@ export default function VendorDashboardPage() {
 
   // ── Studio Pro: Background Cleanup & 3:4 Standardization ─────────────────
   const handleEnhanceExistingImage = async (idx: number, imageUrl: string) => {
-    if (enhancingImageIdx !== null) return;
+    if (enhancingImageIdx !== null || !user) return;
     setEnhancingImageIdx(idx);
     try {
       const res = await fetch('/api/ai/enhance-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl }),
+        // Les images en data URL (repli d'upload) sont envoyées telles quelles
+        body: JSON.stringify(imageUrl.startsWith('data:') ? { imageBase64: imageUrl } : { imageUrl }),
       });
 
       const json = await res.json();
@@ -693,7 +725,7 @@ export default function VendorDashboardPage() {
       }
 
       // Upload clean WebP to Supabase Storage
-      const newStudioUrl = await VendorService.uploadBase64Image(json.imageBase64, user?.id);
+      const newStudioUrl = await VendorService.uploadBase64Image(json.imageBase64, user.id);
 
       setProductForm(f => {
         const nextImages = [...f.images_urls];
@@ -701,7 +733,11 @@ export default function VendorDashboardPage() {
         return { ...f, images_urls: nextImages };
       });
 
-      showMessage('success', '✨ Photo détourée et sublimée en qualité Studio 3:4 !');
+      if (json.segmented === false) {
+        showMessage('error', STUDIO_NOT_SEGMENTED_MESSAGE);
+      } else {
+        showMessage('success', '✨ Photo détourée et sublimée en qualité Studio 3:4 !');
+      }
     } catch (err: any) {
       showMessage('error', err.message || 'Erreur lors de la transformation Studio Pro.');
     } finally {
@@ -711,21 +747,18 @@ export default function VendorDashboardPage() {
 
   const handleStudioProUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
     setEnhancingImageIdx('new');
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // Le canevas Studio fait 1200×1600 : inutile d'envoyer plus de 1600 px
+      const compressed = await compressImage(file, 1600, 0.9);
+      const base64 = await blobToDataUrl(compressed);
 
       const res = await fetch('/api/ai/enhance-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
+        body: JSON.stringify({ imageBase64: base64, mimeType: compressed.type || file.type || 'image/jpeg' }),
       });
 
       const json = await res.json();
@@ -733,9 +766,13 @@ export default function VendorDashboardPage() {
         throw new Error(json.error || 'Erreur lors du nettoyage Studio');
       }
 
-      const studioUrl = await VendorService.uploadBase64Image(json.imageBase64, user?.id);
+      const studioUrl = await VendorService.uploadBase64Image(json.imageBase64, user.id);
       setProductForm(f => ({ ...f, images_urls: [...f.images_urls, studioUrl] }));
-      showMessage('success', '✨ Photo importée et sublimée en qualité Studio 3:4 !');
+      if (json.segmented === false) {
+        showMessage('error', STUDIO_NOT_SEGMENTED_MESSAGE);
+      } else {
+        showMessage('success', '✨ Photo importée et sublimée en qualité Studio 3:4 !');
+      }
     } catch (err: any) {
       showMessage('error', err.message || 'Erreur lors de l\'import Studio Pro.');
     } finally {
@@ -758,8 +795,8 @@ export default function VendorDashboardPage() {
       await VendorService.updateOrderStatus(orderId, newStatus);
       showMessage('success', 'Statut de livraison mis à jour.');
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, order_status: newStatus } : o));
-    } catch {
-      showMessage('error', 'Erreur lors de la mise à jour du statut.');
+    } catch (err: any) {
+      showMessage('error', err?.message || 'Erreur lors de la mise à jour du statut.');
     }
   };
 
@@ -1236,6 +1273,7 @@ export default function VendorDashboardPage() {
               {([
                 ['all', 'Toutes', orders.length],
                 ['pending', 'En attente', orders.filter(o => o.order_status === 'pending').length],
+                ['approved', 'À préparer', orders.filter(o => o.order_status === 'approved').length],
                 ['processing', 'En préparation', orders.filter(o => o.order_status === 'processing').length],
                 ['shipped', 'En livraison', orders.filter(o => o.order_status === 'shipped').length],
                 ['completed', 'Livrées', orders.filter(o => o.order_status === 'completed').length],
@@ -1272,9 +1310,13 @@ export default function VendorDashboardPage() {
                   const product = order.products;
                   const orderCdf = order.total_cdf > 0 ? order.total_cdf : Math.round(order.total_usd * exchangeRate);
 
-                  // Vendor fulfillment buttons (Only for marking shipped / completed, NO accept/reject gate)
+                  // Progression autorisée par la base : approved → processing → shipped → completed
                   let actions: { label: string; status: string; icon: React.ReactNode }[] = [];
-                  if (order.order_status === 'processing') {
+                  if (order.order_status === 'approved') {
+                    actions = [
+                      { label: 'Préparer la commande', status: 'processing', icon: <Package className="w-3.5 h-3.5" /> },
+                    ];
+                  } else if (order.order_status === 'processing') {
                     actions = [
                       { label: 'Prêt / Expédier la commande', status: 'shipped', icon: <Truck className="w-3.5 h-3.5" /> },
                     ];
@@ -1283,6 +1325,8 @@ export default function VendorDashboardPage() {
                       { label: 'Confirmer Livraison', status: 'completed', icon: <CheckCircle className="w-3.5 h-3.5" /> },
                     ];
                   }
+
+                  const canPrintSlip = ['approved', 'processing', 'shipped', 'completed'].includes(order.order_status);
 
                   return (
                     <div key={order.id} className="bg-white border border-brand-border rounded-xl p-4 shadow-subtle hover:shadow-card transition-shadow">
@@ -1360,8 +1404,8 @@ export default function VendorDashboardPage() {
                       </div>
 
                       {/* Fulfillment Actions (Only for status progression) */}
-                      {actions.length > 0 && (
-                        <div className="flex gap-2 mt-3 pt-3 border-t border-brand-border">
+                      {(actions.length > 0 || canPrintSlip) && (
+                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-brand-border">
                           {actions.map(action => (
                             <button
                               key={action.status}
@@ -1372,6 +1416,15 @@ export default function VendorDashboardPage() {
                               {action.icon}{action.label}
                             </button>
                           ))}
+                          {canPrintSlip && (
+                            <Link
+                              href={`/vendor/orders/${order.id}/slip`}
+                              target="_blank"
+                              className="flex items-center gap-1.5 px-4 py-2 rounded text-xs font-bold uppercase tracking-wide border border-brand-border text-brand-black hover:bg-brand-lightGray transition-colors"
+                            >
+                              <Printer className="w-3.5 h-3.5" />Bon de livraison
+                            </Link>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1797,7 +1850,7 @@ export default function VendorDashboardPage() {
                                 <span className="text-[10px] text-brand-gray line-through">{formatUSD(product.price_usd)}</span>
                               )}
                               <span className="text-[9px] text-neutral-400 font-mono">
-                                ≈ {Math.round(sale.flash_price_usd * 2850).toLocaleString()} CDF
+                                ≈ {Math.round(sale.flash_price_usd * exchangeRate).toLocaleString()} CDF
                               </span>
                             </div>
                             <div className="text-[9px] text-brand-gray mt-1 font-mono">
@@ -1921,18 +1974,20 @@ export default function VendorDashboardPage() {
                           onChange={(e) => {
                             const uKey = e.target.value;
                             setSelectedUniverse(uKey);
-                            const u = HIERARCHICAL_TAXONOMY[uKey];
+                            const u = taxonomy[uKey];
                             if (u) {
                               setProductForm(f => ({
                                 ...f,
                                 target_gender: u.gender,
-                                category: u.subs[0] || f.category,
+                                category: u.subs[0]?.name || '',
+                                category_id: u.subs[0]?.id || null,
                               }));
                             }
                           }}
                           className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg bg-white focus:outline-none focus:border-brand-black"
                         >
-                          {Object.entries(HIERARCHICAL_TAXONOMY).map(([key, u]) => (
+                          {Object.keys(taxonomy).length === 0 && <option value="">Chargement des catégories…</option>}
+                          {Object.entries(taxonomy).map(([key, u]) => (
                             <option key={key} value={key}>{u.label}</option>
                           ))}
                         </select>
@@ -1944,13 +1999,16 @@ export default function VendorDashboardPage() {
                         </label>
                         <select
                           id="product-category-select"
-                          value={productForm.category}
-                          onChange={(e) => setProductForm(f => ({ ...f, category: e.target.value }))}
+                          value={productForm.category_id || ''}
+                          onChange={(e) => {
+                            const sub = taxonomy[selectedUniverse]?.subs.find((s) => s.id === e.target.value);
+                            setProductForm(f => ({ ...f, category: sub?.name || '', category_id: sub?.id || null }));
+                          }}
                           className="w-full px-3 py-2 text-xs border border-brand-border rounded-lg bg-white focus:outline-none focus:border-brand-black font-semibold text-brand-black"
                         >
                           <option value="">-- Choisir le type d'article --</option>
-                          {(HIERARCHICAL_TAXONOMY[selectedUniverse]?.subs || []).map((sub) => (
-                            <option key={sub} value={sub}>{sub}</option>
+                          {(taxonomy[selectedUniverse]?.subs || []).map((sub) => (
+                            <option key={sub.id} value={sub.id}>{sub.label}</option>
                           ))}
                         </select>
                       </div>

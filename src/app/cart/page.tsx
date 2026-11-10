@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ShoppingBag, ArrowRight, Trash2, Plus, Minus, ArrowLeft } from 'lucide-react';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { useCartStore, cartUnitPriceUsd } from '@/lib/stores/useCartStore';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 import { PromoCodeBox } from '@/components/cart/PromoCodeBox';
@@ -22,7 +22,7 @@ export default function CartPage() {
     getPointsDiscountUsd,
     getTotalUsd,
     deliveryType,
-    setDeliveryType,
+    deliveryZone,
   } = useCartStore();
 
   const { formatPrice } = useCurrencyStore();
@@ -94,9 +94,14 @@ export default function CartPage() {
                           </h3>
                         </Link>
                         <span className="text-sm font-bold text-brand-black whitespace-nowrap">
-                          {formatPrice(item.product.price_usd * item.quantity)}
+                          {formatPrice(cartUnitPriceUsd(item) * item.quantity)}
                         </span>
                       </div>
+                      {item.flash && (
+                        <span className="inline-flex items-center mt-1 bg-amber-400 text-black text-[9px] font-black uppercase px-1.5 py-0.5 rounded">
+                          ⚡ Prix flash
+                        </span>
+                      )}
 
                       <div className="flex items-center gap-4 text-xs text-brand-gray mt-1">
                         {item.selected_size && <span>{t('sizeLabel')}: <strong className="text-brand-black">{item.selected_size}</strong></span>}
@@ -161,7 +166,13 @@ export default function CartPage() {
               <div className="flex justify-between text-neutral-600">
                 <span>{t('deliveryFee')}</span>
                 <span className="font-bold text-brand-black">
-                  {delivery === 0 ? <span className="text-brand-emerald">{t('freeDeliveryThreshold')}</span> : formatPrice(delivery)}
+                  {deliveryType === 'Cash on Delivery' && !deliveryZone ? (
+                    <span className="text-brand-gray font-normal">Selon la commune (étape suivante)</span>
+                  ) : delivery === 0 ? (
+                    <span className="text-brand-emerald">{t('freeDelivery')}</span>
+                  ) : (
+                    formatPrice(delivery)
+                  )}
                 </span>
               </div>
 

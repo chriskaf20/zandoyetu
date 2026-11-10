@@ -6,20 +6,21 @@ import Image from 'next/image';
 import { ShoppingBag, Heart, Check } from 'lucide-react';
 import { Product } from '@/types/schema';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { useCartStore, flashFromSale } from '@/lib/stores/useCartStore';
+import { useActiveFlashMap } from '@/hooks/useFlashSales';
 import { useWishlistStore } from '@/lib/stores/useWishlistStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 
 interface ProductCardProps {
   product: Product;
-  isFlashSale?: boolean;
 }
 
-export function ProductCard({ product, isFlashSale }: ProductCardProps) {
+export function ProductCard({ product }: ProductCardProps) {
   const { formatPrice, formatPriceCDF, formatPriceUSD, currency } = useCurrencyStore();
   const { t } = useLanguageStore();
   const addItem = useCartStore((s) => s.addItem);
   const { favoriteProductIds, toggleFavorite } = useWishlistStore();
+  const flashSale = useActiveFlashMap().get(product.id);
 
   const [isAdded, setIsAdded] = useState(false);
   const isFavorite = favoriteProductIds.includes(product.id);
@@ -27,12 +28,23 @@ export function ProductCard({ product, isFlashSale }: ProductCardProps) {
   const img = product.images_urls?.[0] || 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600';
   const isOutOfStock = product.stock_count <= 0;
 
+  // Vente flash officielle (admin) : prix flash, barré = prix catalogue.
+  // Sinon remise vendeur : barré = compare_at_price.
+  const priceUsd = flashSale ? flashSale.flash_price_usd : product.price_usd;
+  const strikeUsd = flashSale
+    ? product.price_usd
+    : product.compare_at_price && product.compare_at_price > product.price_usd
+    ? product.compare_at_price
+    : null;
+  const flashDiscount = flashSale ? Math.round((1 - flashSale.flash_price_usd / product.price_usd) * 100) : 0;
+  const vendorDiscount = !flashSale && strikeUsd ? Math.round(((strikeUsd - product.price_usd) / strikeUsd) * 100) : 0;
+
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isOutOfStock) return;
 
-    addItem(product);
+    addItem(product, undefined, undefined, 1, flashFromSale(flashSale));
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2000);
   };
@@ -57,9 +69,9 @@ export function ProductCard({ product, isFlashSale }: ProductCardProps) {
 
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
-          {isFlashSale && (
-            <span className="bg-brand-red text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow flex items-center gap-0.5">
-              <span>⚡ FLASH</span>
+          {flashSale && (
+            <span className="bg-amber-400 text-black text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow flex items-center gap-0.5">
+              <span>⚡ FLASH -{flashDiscount}%</span>
             </span>
           )}
           {product.is_trending && (
@@ -67,9 +79,9 @@ export function ProductCard({ product, isFlashSale }: ProductCardProps) {
               {t('trendingNow')}
             </span>
           )}
-          {!isFlashSale && product.compare_at_price && product.compare_at_price > product.price_usd && (
+          {vendorDiscount > 0 && (
             <span className="bg-brand-red text-white text-[9px] font-bold px-2 py-0.5 rounded shadow">
-              -{Math.round(((product.compare_at_price - product.price_usd) / product.compare_at_price) * 100)}%
+              -{vendorDiscount}%
             </span>
           )}
         </div>
@@ -125,16 +137,16 @@ export function ProductCard({ product, isFlashSale }: ProductCardProps) {
 
         <div className="mt-3 pt-2 border-t border-brand-border flex items-center justify-between">
           <div>
-            <span className="text-sm font-bold text-brand-black">
-              {formatPrice(product.price_usd)}
+            <span className={`text-sm font-bold ${flashSale ? 'text-amber-600' : 'text-brand-black'}`}>
+              {formatPrice(priceUsd)}
             </span>
-            {product.compare_at_price && product.compare_at_price > product.price_usd && (
+            {strikeUsd && (
               <span className="block text-[10px] text-brand-gray line-through">
-                {formatPrice(product.compare_at_price)}
+                {formatPrice(strikeUsd)}
               </span>
             )}
             <span className="block text-[10px] text-neutral-400 font-medium">
-              {currency === 'USD' ? `≈ ${formatPriceCDF(product.price_usd)}` : `≈ ${formatPriceUSD(product.price_usd)}`}
+              {currency === 'USD' ? `≈ ${formatPriceCDF(priceUsd)}` : `≈ ${formatPriceUSD(priceUsd)}`}
             </span>
           </div>
 

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { withVendorEmbedFallback } from '@/lib/supabase/vendorProfiles';
 import { FlashSale } from '@/types/schema';
 import { ProductService } from './ProductService';
 
@@ -18,12 +19,14 @@ export class FlashSaleService {
   static async getActiveWithProducts(): Promise<FlashSale[]> {
     try {
       const now = new Date().toISOString();
-      const { data, error } = await supabase
-        .from('flash_sales')
-        .select('*, products(*, users:vendor_id(id, full_name, phone))')
-        .lte('start_time', now)
-        .gt('end_time', now)
-        .order('created_at', { ascending: false });
+      const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) =>
+        supabase
+          .from('flash_sales')
+          .select(vendorEmbed ? `*, products(*, ${vendorEmbed})` : '*, products(*)')
+          .lte('start_time', now)
+          .gt('end_time', now)
+          .order('created_at', { ascending: false })
+      );
 
       if (error) {
         console.error('[FlashSaleService] Error fetching active flash sales:', error);
@@ -54,10 +57,12 @@ export class FlashSaleService {
    */
   static async getAll(): Promise<FlashSale[]> {
     try {
-      const { data, error } = await supabase
-        .from('flash_sales')
-        .select('*, products(*, users:vendor_id(id, full_name, phone))')
-        .order('created_at', { ascending: false });
+      const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) =>
+        supabase
+          .from('flash_sales')
+          .select(vendorEmbed ? `*, products(*, ${vendorEmbed})` : '*, products(*)')
+          .order('created_at', { ascending: false })
+      );
 
       if (error) {
         console.error('[FlashSaleService] Error fetching all flash sales:', error);

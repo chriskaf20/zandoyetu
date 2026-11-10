@@ -2,12 +2,15 @@
 
 import React from 'react';
 import { MapPin, Navigation } from 'lucide-react';
-import { LUBUMBASHI_REGIONS } from '@/lib/utils/lubumbashiRegions';
+import { landmarksForCommune } from '@/lib/utils/lubumbashiRegions';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
+import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
+import { DeliveryZone } from '@/lib/services/DeliveryZoneService';
 
 interface AddressFormProps {
-  commune: string;
-  onCommuneChange: (commune: string) => void;
+  zones: DeliveryZone[];
+  zoneId: string;
+  onZoneChange: (zone: DeliveryZone | null) => void;
   landmark: string;
   onLandmarkChange: (landmark: string) => void;
   address: string;
@@ -17,8 +20,9 @@ interface AddressFormProps {
 }
 
 export function AddressForm({
-  commune,
-  onCommuneChange,
+  zones,
+  zoneId,
+  onZoneChange,
   landmark,
   onLandmarkChange,
   address,
@@ -27,7 +31,15 @@ export function AddressForm({
   onMapsLinkChange,
 }: AddressFormProps) {
   const { t } = useLanguageStore();
-  const currentCommuneData = LUBUMBASHI_REGIONS.find((r) => r.name === commune);
+  const { formatPrice } = useCurrencyStore();
+  const currentZone = zones.find((z) => z.id === zoneId) || null;
+  const landmarks = currentZone ? landmarksForCommune(currentZone.commune) : [];
+  const cities = Array.from(new Set(zones.map((z) => z.city)));
+
+  const zoneLabel = (z: DeliveryZone) => {
+    const fee = Number(z.fee_usd) === 0 ? 'livraison offerte' : formatPrice(Number(z.fee_usd));
+    return `${z.commune} — ${fee}${z.eta_label ? ` · ${z.eta_label}` : ''}`;
+  };
 
   return (
     <div className="p-5 bg-white border border-brand-border rounded space-y-4">
@@ -39,43 +51,56 @@ export function AddressForm({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Commune */}
+        {/* Commune (zone de livraison) */}
         <div>
-          <label className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
+          <label htmlFor="delivery-zone" className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
             {t('communeLabel')} *
           </label>
           <select
-            value={commune}
+            id="delivery-zone"
+            value={zoneId}
             onChange={(e) => {
-              onCommuneChange(e.target.value);
+              onZoneChange(zones.find((z) => z.id === e.target.value) || null);
               onLandmarkChange('');
             }}
             className="w-full px-3 py-2 text-xs bg-brand-lightGray border border-brand-border rounded focus:border-brand-black focus:bg-white focus:outline-none cursor-pointer"
             required
           >
             <option value="">{t('communePlaceholder')}</option>
-            {LUBUMBASHI_REGIONS.map((reg) => (
-              <option key={reg.name} value={reg.name}>
-                {reg.name}
-              </option>
+            {cities.map((city) => (
+              <optgroup key={city} label={city}>
+                {zones
+                  .filter((z) => z.city === city)
+                  .map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {zoneLabel(z)}
+                    </option>
+                  ))}
+              </optgroup>
             ))}
           </select>
+          {currentZone?.free_delivery_threshold_usd != null && (
+            <p className="text-[10px] text-brand-gray mt-1">
+              Livraison offerte dès {formatPrice(currentZone.free_delivery_threshold_usd)} d&apos;achats.
+            </p>
+          )}
         </div>
 
         {/* Landmark */}
         <div>
-          <label className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
+          <label htmlFor="delivery-landmark" className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
             {t('landmarkLabel')} *
           </label>
-          {currentCommuneData && currentCommuneData.landmarks.length > 0 ? (
+          {landmarks.length > 0 ? (
             <select
+              id="delivery-landmark"
               value={landmark}
               onChange={(e) => onLandmarkChange(e.target.value)}
               className="w-full px-3 py-2 text-xs bg-brand-lightGray border border-brand-border rounded focus:border-brand-black focus:bg-white focus:outline-none cursor-pointer"
               required
             >
               <option value="">{t('landmarkPlaceholder')}</option>
-              {currentCommuneData.landmarks.map((lm) => (
+              {landmarks.map((lm) => (
                 <option key={lm} value={lm}>
                   {lm}
                 </option>
@@ -83,6 +108,7 @@ export function AddressForm({
             </select>
           ) : (
             <input
+              id="delivery-landmark"
               type="text"
               value={landmark}
               onChange={(e) => onLandmarkChange(e.target.value)}
@@ -96,10 +122,11 @@ export function AddressForm({
 
       {/* Specific House/Street */}
       <div>
-        <label className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
+        <label htmlFor="delivery-address" className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
           {t('streetLabel')} *
         </label>
         <input
+          id="delivery-address"
           type="text"
           value={address}
           onChange={(e) => onAddressChange(e.target.value)}
@@ -111,10 +138,11 @@ export function AddressForm({
 
       {/* Google Maps link */}
       <div>
-        <label className="block text-[11px] font-semibold text-brand-gray uppercase tracking-wider mb-1 flex items-center gap-1">
+        <label htmlFor="delivery-maps" className="block text-[11px] font-semibold text-brand-gray uppercase tracking-wider mb-1 flex items-center gap-1">
           <Navigation className="w-3 h-3" /> {t('mapsLinkLabel')}
         </label>
         <input
+          id="delivery-maps"
           type="url"
           value={mapsLink}
           onChange={(e) => onMapsLinkChange(e.target.value)}

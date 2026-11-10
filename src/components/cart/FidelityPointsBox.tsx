@@ -3,19 +3,21 @@
 import React from 'react';
 import { Sparkles } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { useCartStore, POINT_VALUE_USD } from '@/lib/stores/useCartStore';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 
 export function FidelityPointsBox() {
   const user = useAuthStore((s) => s.user);
-  const { pointsToRedeem, setPointsToRedeem, getPointsDiscountUsd } = useCartStore();
+  const { pointsToRedeem, setPointsToRedeem, getPointsDiscountUsd, getSubtotalUsd, getPromoDiscountUsd } = useCartStore();
   const { formatPrice } = useCurrencyStore();
   const { t } = useLanguageStore();
 
   if (!user || user.points_balance <= 0) return null;
 
-  const maxPoints = user.points_balance;
+  // Pas plus de points que le montant restant à payer (même plafond que le serveur)
+  const remainingUsd = Math.max(0, getSubtotalUsd() - getPromoDiscountUsd());
+  const maxPoints = Math.min(user.points_balance, Math.floor(remainingUsd / POINT_VALUE_USD));
   const discountUsd = getPointsDiscountUsd();
 
   return (

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
+import { SITE_URL } from '@/lib/utils/siteUrl';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { MobileNav } from '@/components/layout/MobileNav';
@@ -22,7 +23,11 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Zando Yetu - Marketplace',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'Zando Yetu - Marketplace',
+    template: '%s | Zando Yetu',
+  },
   description: 'La première place de marché dédiée à la mode et aux créateurs à Lubumbashi, RDC.',
   keywords: ['Zando Yetu', 'Mode Lubumbashi', 'Boutique en ligne RDC', 'Vêtements Lubumbashi', 'Marketplace Katanga'],
   manifest: '/manifest.webmanifest',

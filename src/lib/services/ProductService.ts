@@ -1,5 +1,19 @@
 import { supabase } from '@/lib/supabase/client';
+import { withVendorEmbedFallback } from '@/lib/supabase/vendorProfiles';
 import { Product } from '@/types/schema';
+import { CategoryService } from './CategoryService';
+
+export const DEFAULT_PAGE_SIZE = 48;
+
+/** Valeur entre guillemets pour un filtre PostgREST (virgules, parenthèses, &) */
+function quotePostgrestValue(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/** Terme de recherche sans caractères de syntaxe PostgREST/LIKE */
+function sanitizeSearchTerm(raw: string): string {
+  return raw.replace(/[%_*,()"'\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
 
 export class ProductService {
   static mapRowToProduct(row: any): Product {
@@ -61,13 +75,39 @@ export class ProductService {
         city: row.stores.city,
         phone: row.stores.users?.phone || null,
       } : row.users ? {
-        id: row.users.id,
+        // public_vendor_profiles : full_name = nom de la boutique, store_id = lien /stores/[id]
+        id: row.users.store_id || row.users.id,
         store_name: row.users.full_name || 'Boutique Zando',
-        store_logo_url: null,
-        city: 'Lubumbashi',
+        store_logo_url: row.users.store_logo_url || null,
+        city: row.users.city || 'Lubumbashi',
         phone: row.users.phone || null,
+        is_verified: !!row.users.is_verified,
       } : undefined,
     };
+  }
+
+  /**
+   * Filtre PostgREST d'une catégorie : la catégorie et toutes ses descendantes
+   * (category_id), plus le texte libre des anciens produits non rattachés.
+   */
+  private static async categoryFilter(slug: string): Promise<string | null> {
+    const all = await CategoryService.getAll();
+    const root = all.find((c) => (c.slug || '').toLowerCase() === slug);
+    if (!root) return null;
+
+    const ids = new Set<string>([root.id]);
+    let frontier = [root.id];
+    while (frontier.length > 0) {
+      const children = all.filter((c) => c.parent_id && frontier.includes(c.parent_id)).map((c) => c.id);
+      children.forEach((id) => ids.add(id));
+      frontier = children;
+    }
+
+    const names = all.filter((c) => ids.has(c.id)).map((c) => c.name);
+    return [
+      `category_id.in.(${Array.from(ids).join(',')})`,
+      ...names.map((name) => `category.ilike.${quotePostgrestValue(name)}`),
+    ].join(',');
   }
 
   static async getAll(options?: {
@@ -77,54 +117,44 @@ export class ProductService {
     trendingOnly?: boolean;
     limit?: number;
   }): Promise<Product[]> {
-    let query: any = supabase
-      .from('products')
-      .select('*, users:vendor_id(id, full_name, phone)')
-      .eq('status', 'active');
+    const cat = options?.category?.toLowerCase().trim();
+    const isTrendingCategory = cat === 'tendances';
+    const categoryFilter = cat && cat !== 'all' && !isTrendingCategory ? await this.categoryFilter(cat) : null;
+    const gender = options?.gender && ['men', 'women', 'mixte'].includes(options.gender) ? options.gender : null;
+    const search = options?.search ? sanitizeSearchTerm(options.search) : '';
 
-    if (options?.category && options.category !== 'all') {
-      const cat = options.category.toLowerCase().trim();
-      if (cat === 'femme' || cat === 'femmes') {
-        query = query.or(`target_gender.eq.women,target_gender.eq.mixte,category.ilike.%femme%,category.ilike.%robe%`);
-      } else if (cat === 'homme' || cat === 'hommes') {
-        query = query.or(`target_gender.eq.men,category.ilike.%homme%,category.ilike.%chemise%,category.ilike.%costume%`);
-      } else if (cat === 'chaussures' || cat === 'shoes') {
-        query = query.or(`category.ilike.%chaussure%,category.ilike.%shoe%,category.ilike.%sneaker%,category.ilike.%basket%,category.ilike.%talon%,category.ilike.%mocassin%,category.ilike.%sandale%,title.ilike.%sneaker%,title.ilike.%chaussure%`);
-      } else if (cat === 'sacs') {
-        query = query.or(`category.ilike.%sac%,category.ilike.%maroquinerie%,category.ilike.%pochette%,category.ilike.%valise%,category.ilike.%portefeuille%,title.ilike.%sac%`);
-      } else if (cat === 'accessoires') {
-        query = query.or(`category.ilike.%accessoire%,category.ilike.%bijou%,category.ilike.%montre%,category.ilike.%lunette%,category.ilike.%ceinture%,title.ilike.%montre%,title.ilike.%bijou%`);
-      } else if (cat === 'beaute') {
-        query = query.or(`category.ilike.%beaut%,category.ilike.%parfum%,category.ilike.%maquillage%,category.ilike.%soin%,category.ilike.%cheveu%,title.ilike.%parfum%`);
-      } else if (cat === 'robes') {
-        query = query.or(`category.ilike.%robe%,category.ilike.%dress%,title.ilike.%robe%,description.ilike.%robe%`);
-      } else if (cat === 'tendances') {
-        query = query.eq('is_trending', true);
-      } else {
-        query = query.or(`category.ilike.%${cat}%,title.ilike.%${cat}%`);
+    if (cat && cat !== 'all' && !isTrendingCategory && !categoryFilter) {
+      return []; // catégorie inconnue ou désactivée
+    }
+
+    const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) => {
+      let query: any = supabase
+        .from('products')
+        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
+        .eq('status', 'active');
+
+      if (categoryFilter) {
+        query = query.or(categoryFilter);
       }
-    }
 
-    if (options?.gender && options.gender !== 'all') {
-      query = query.or(`target_gender.eq.${options.gender},target_gender.eq.mixte`);
-    }
+      if (gender) {
+        query = query.in('target_gender', [gender, 'mixte']);
+      }
 
-    if (options?.trendingOnly) {
-      query = query.eq('is_trending', true);
-    }
+      if (options?.trendingOnly || isTrendingCategory) {
+        query = query.eq('is_trending', true);
+      }
 
-    if (options?.search && options.search.trim()) {
-      const s = `%${options.search.trim()}%`;
-      query = query.or(`title.ilike.${s},description.ilike.${s},title_fr.ilike.${s},title_en.ilike.${s},title_sw.ilike.${s}`);
-    }
+      if (search) {
+        const s = quotePostgrestValue(`%${search}%`);
+        query = query.or(`title.ilike.${s},description.ilike.${s},title_fr.ilike.${s},title_en.ilike.${s},title_sw.ilike.${s}`);
+      }
 
-    query = query.order('local_updated_at', { ascending: false });
+      query = query.order('local_updated_at', { ascending: false }).limit(options?.limit || DEFAULT_PAGE_SIZE);
 
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
+      return query;
+    });
 
-    const { data, error } = await query;
     if (error) {
       console.error('[ProductService] Error fetching products:', error);
       return [];
@@ -133,12 +163,30 @@ export class ProductService {
     return (data || []).map(this.mapRowToProduct);
   }
 
+  /** Données fraîches pour resynchroniser le panier (prix, stock, statut) */
+  static async getByIds(ids: string[]): Promise<Product[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) =>
+      supabase
+        .from('products')
+        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
+        .in('id', ids) as any
+    );
+    if (error) {
+      console.error('[ProductService] Error fetching products by ids:', error);
+      return [];
+    }
+    return (data || []).map(this.mapRowToProduct);
+  }
+
   static async getById(id: string): Promise<Product | null> {
-    const { data, error } = await (supabase
-      .from('products')
-      .select('*, users:vendor_id(id, full_name, phone)')
-      .eq('id', id)
-      .maybeSingle() as any);
+    const { data, error } = await withVendorEmbedFallback<any>((vendorEmbed) =>
+      supabase
+        .from('products')
+        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
+        .eq('id', id)
+        .maybeSingle() as any
+    );
 
     if (error) {
       console.error('[ProductService] Error fetching product by id:', error);
@@ -150,12 +198,14 @@ export class ProductService {
   }
 
   static async getByVendor(vendorId: string): Promise<Product[]> {
-    const { data, error } = await (supabase
-      .from('products')
-      .select('*, users:vendor_id(id, full_name, phone)')
-      .eq('vendor_id', vendorId)
-      .eq('status', 'active')
-      .order('local_updated_at', { ascending: false }) as any);
+    const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) =>
+      supabase
+        .from('products')
+        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
+        .eq('vendor_id', vendorId)
+        .eq('status', 'active')
+        .order('local_updated_at', { ascending: false }) as any
+    );
 
     if (error) {
       console.error('[ProductService] Error fetching vendor products:', error);
@@ -170,13 +220,15 @@ export class ProductService {
    * Returns an empty array if none are marked trending.
    */
   static async getTrendingProducts(limit = 10): Promise<Product[]> {
-    const { data, error } = await (supabase
-      .from('products')
-      .select('*, users:vendor_id(id, full_name, phone)')
-      .eq('status', 'active')
-      .eq('is_trending', true)
-      .order('local_updated_at', { ascending: false })
-      .limit(limit) as any);
+    const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) =>
+      supabase
+        .from('products')
+        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
+        .eq('status', 'active')
+        .eq('is_trending', true)
+        .order('local_updated_at', { ascending: false })
+        .limit(limit) as any
+    );
 
     if (error) {
       console.error('[ProductService] Error fetching trending products:', error);

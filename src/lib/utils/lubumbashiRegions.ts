@@ -3,6 +3,14 @@ export interface CommuneData {
   landmarks: string[];
 }
 
+/**
+ * Points de repère suggérés par commune. Les communes desservies et leurs frais
+ * viennent de la table delivery_zones (DeliveryZoneService).
+ */
+export function landmarksForCommune(commune: string): string[] {
+  return LUBUMBASHI_REGIONS.find((r) => r.name.toLowerCase() === commune.toLowerCase())?.landmarks || [];
+}
+
 export const LUBUMBASHI_REGIONS: CommuneData[] = [
   {
     name: 'Lubumbashi',
@@ -81,7 +89,7 @@ export const LUBUMBASHI_REGIONS: CommuneData[] = [
     ]
   },
   {
-    name: 'Dilala (Kolwezi)',
+    name: 'Dilala',
     landmarks: [
       'Rond-point Mwangeji',
       'Centre-ville Dilala',
@@ -91,7 +99,7 @@ export const LUBUMBASHI_REGIONS: CommuneData[] = [
     ]
   },
   {
-    name: 'Manika (Kolwezi)',
+    name: 'Manika',
     landmarks: [
       'Marché Manika',
       'Rond-point Kanina',

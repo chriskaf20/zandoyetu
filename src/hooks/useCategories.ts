@@ -1,5 +1,6 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CategoryService } from '@/lib/services/CategoryService';
+import { CategoryService, StructuredDepartment } from '@/lib/services/CategoryService';
 
 export function useCategories() {
   return useQuery({
@@ -15,4 +16,10 @@ export function useCategoryTree() {
     queryFn: () => CategoryService.getTree(),
     staleTime: 1000 * 60 * 10,
   });
+}
+
+/** Univers et sous-catégories (Mega Menu, page Catégories) issus de la table categories */
+export function useStructuredTaxonomy(): StructuredDepartment[] {
+  const { data } = useCategories();
+  return useMemo(() => CategoryService.buildStructuredTaxonomy(data || []), [data]);
 }

@@ -13,6 +13,14 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
   // Sync exchange rate & platform settings
   usePlatformSettings();
 
+  // Service worker PWA (page hors ligne, cache des images) — production uniquement
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err) => {
+      console.warn('[PWA] Service worker registration failed:', err);
+    });
+  }, []);
+
   useEffect(() => {
     // Initial session rehydration
     supabase.auth.getSession().then(({ data: { session } }) => {

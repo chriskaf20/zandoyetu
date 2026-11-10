@@ -1,62 +1,121 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, Truck, Store, ArrowLeft, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { ArrowLeft, CheckCircle2, Loader2, AlertCircle, Smartphone, Banknote, Info } from 'lucide-react';
+import { useCartStore, cartUnitPriceUsd } from '@/lib/stores/useCartStore';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 import { useCheckoutMutation } from '@/hooks/useOrders';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
+import { useDeliveryZones } from '@/hooks/useDeliveryZones';
+import { useActiveFlashMap, useFlashSales } from '@/hooks/useFlashSales';
 import { AddressForm } from '@/components/cart/AddressForm';
 import { PromoCodeBox } from '@/components/cart/PromoCodeBox';
 import { FidelityPointsBox } from '@/components/cart/FidelityPointsBox';
-import { supabase } from '@/lib/supabase/client';
+import { ProductService } from '@/lib/services/ProductService';
+import { CheckoutPayload, CheckoutPaymentMethod, CheckoutResult } from '@/types/cart';
+import { MobileMoneyProvider } from '@/types/schema';
+
+type PaymentChoice = 'cash' | 'mobile_money';
+
+const MOMO_PROVIDERS: Array<{ id: MobileMoneyProvider; label: string; settingKey: 'mpesa_number' | 'airtel_number' | 'orange_number' }> = [
+  { id: 'mpesa', label: 'M-Pesa', settingKey: 'mpesa_number' },
+  { id: 'airtel', label: 'Airtel Money', settingKey: 'airtel_number' },
+  { id: 'orange', label: 'Orange Money', settingKey: 'orange_number' },
+];
 
 export default function CheckoutPage() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { 
-    items, 
-    activeCoupon, 
-    pointsToRedeem, 
-    deliveryType, 
+  const {
+    items,
+    activeCoupon,
+    pointsToRedeem,
+    deliveryType,
     setDeliveryType,
+    deliveryZone,
+    setDeliveryZone,
     clearCart,
+    syncWithCatalog,
     getSubtotalUsd,
     getDeliveryFeeUsd,
     getPromoDiscountUsd,
+    getPointsUsed,
     getPointsDiscountUsd,
     getTotalUsd,
   } = useCartStore();
 
-  usePlatformSettings();
+  const { data: settings } = usePlatformSettings();
+  const { data: zones = [], isLoading: zonesLoading } = useDeliveryZones();
+  const activeFlash = useActiveFlashMap();
+  const { isFetched: flashLoaded } = useFlashSales();
   const { formatPrice, formatPriceCDF, formatPriceUSD, currency } = useCurrencyStore();
   const { t } = useLanguageStore();
   const { mutateAsync: processCheckout, isPending } = useCheckoutMutation();
 
   // Address states
-  const [commune, setCommune] = useState('');
   const [landmark, setLandmark] = useState('');
   const [address, setAddress] = useState('');
   const [mapsLink, setMapsLink] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successResult, setSuccessResult] = useState<{ orderIds: string[] } | null>(null);
 
-  // Autofill address from user profile
-  React.useEffect(() => {
-    if (user?.physical_address && !address) {
-      setAddress(user.physical_address);
-    }
+  // Payment states
+  const [paymentChoice, setPaymentChoice] = useState<PaymentChoice>('cash');
+  const [momoProvider, setMomoProvider] = useState<MobileMoneyProvider>('mpesa');
+  const [momoPhone, setMomoPhone] = useState('');
+  const [momoReference, setMomoReference] = useState('');
+
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [successResult, setSuccessResult] = useState<CheckoutResult | null>(null);
+  const syncedRef = useRef(false);
+
+  const momoAvailable = (settings?.mobile_money_active ?? 0) === 1;
+  const isPickup = deliveryType === 'In-Store Pickup';
+
+  // Autofill address & payer phone from user profile
+  useEffect(() => {
+    if (user?.physical_address && !address) setAddress(user.physical_address);
+    if (user?.phone && !momoPhone) setMomoPhone(user.phone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Le panier conserve des instantanés : prix, stock et ventes flash sont rafraîchis
+  // depuis le serveur avant paiement pour que le total affiché soit celui facturé.
+  useEffect(() => {
+    if (syncedRef.current || items.length === 0 || !flashLoaded) return;
+    syncedRef.current = true;
+    ProductService.getByIds(Array.from(new Set(items.map((i) => i.product.id)))).then((fresh) => {
+      if (fresh.length === 0) return;
+      const { removed, changed } = syncWithCatalog(fresh, activeFlash);
+      if (removed > 0 || changed > 0) {
+        setSyncNotice(
+          `Votre panier a été mis à jour (${[
+            removed > 0 ? `${removed} article(s) indisponible(s) retiré(s)` : '',
+            changed > 0 ? `${changed} prix ou quantité ajusté(s)` : '',
+          ].filter(Boolean).join(', ')}).`
+        );
+      }
+    });
+  }, [items, activeFlash, flashLoaded, syncWithCatalog]);
+
+  // Zone mémorisée mais désactivée entre-temps
+  useEffect(() => {
+    if (!zonesLoading && deliveryZone && !zones.some((z) => z.id === deliveryZone.id)) {
+      setDeliveryZone(null);
+    }
+  }, [zones, zonesLoading, deliveryZone, setDeliveryZone]);
 
   const subtotal = getSubtotalUsd();
   const delivery = getDeliveryFeeUsd();
   const promo = getPromoDiscountUsd();
   const points = getPointsDiscountUsd();
   const total = getTotalUsd();
+
+  const selectedProvider = MOMO_PROVIDERS.find((p) => p.id === momoProvider)!;
+  const merchantNumber = settings?.[selectedProvider.settingKey] || null;
 
   if (items.length === 0 && !successResult) {
     return (
@@ -78,54 +137,55 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (deliveryType === 'Cash on Delivery') {
-      if (!commune || !landmark || !address.trim()) {
-        setErrorMessage(t('addressRequired'));
-        return;
-      }
+    if (!isPickup && (!deliveryZone || !landmark || !address.trim())) {
+      setErrorMessage(t('addressRequired'));
+      return;
     }
 
-    const payload = {
+    if (paymentChoice === 'mobile_money' && (!momoPhone.trim() || !momoReference.trim())) {
+      setErrorMessage('Indiquez le numéro qui a payé et la référence de la transaction Mobile Money.');
+      return;
+    }
+
+    const paymentMethod: CheckoutPaymentMethod =
+      paymentChoice === 'mobile_money' ? 'Mobile Money' : deliveryType;
+
+    const payload: CheckoutPayload = {
       items: items.map((item) => ({
         product_id: item.product.id,
         quantity: item.quantity,
         size: item.selected_size,
         color: item.selected_color,
       })),
-      delivery_address: {
-        address: address.trim() || 'In-Store Pickup',
-        commune: commune || null,
-        nearest_landmark: landmark || null,
-      },
-      payment_method: deliveryType,
+      delivery_address: isPickup
+        ? { address: null, commune: null, nearest_landmark: null }
+        : {
+            address: address.trim(),
+            commune: deliveryZone?.commune || null,
+            zone_id: deliveryZone?.id || null,
+            nearest_landmark: landmark || null,
+            maps_link: mapsLink.trim() || null,
+          },
+      payment_method: paymentMethod,
       promo_code: activeCoupon?.code || null,
-      points_redeemed: pointsToRedeem,
+      points_redeemed: getPointsUsed(),
+      payment_details:
+        paymentChoice === 'mobile_money'
+          ? {
+              provider: momoProvider,
+              phone: momoPhone.trim(),
+              reference: momoReference.trim(),
+              fulfillment: isPickup ? 'pickup' : 'delivery',
+            }
+          : null,
     };
 
     try {
-      const result = await processCheckout({
-        customerId: user.id,
-        payload,
-      });
-
+      // L'usage du code promo est enregistré par rpc_process_checkout
+      const result = await processCheckout({ customerId: user.id, payload });
       if (result.success) {
-        // Record coupon usage in public.user_coupon_usages
-        if (activeCoupon && user.id) {
-          try {
-            await (supabase.from('user_coupon_usages').insert({
-              user_id: user.id,
-              coupon_id: activeCoupon.id,
-              order_id: result.orderIds?.[0] || null,
-              discount_amount_usd: promo,
-              used_at: new Date().toISOString(),
-            }) as any);
-          } catch (couponErr) {
-            console.warn('[Checkout] Notice: Coupon usage record logged:', couponErr);
-          }
-        }
-
         clearCart();
-        setSuccessResult({ orderIds: result.orderIds });
+        setSuccessResult(result);
       }
     } catch (err: any) {
       setErrorMessage(err.message || t('checkoutError'));
@@ -133,16 +193,27 @@ export default function CheckoutPage() {
   };
 
   if (successResult) {
+    const isMomo = successResult.paymentStatus === 'awaiting_admin_clearance';
     return (
       <div className="max-w-xl mx-auto px-4 py-24 text-center">
         <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
           <CheckCircle2 className="w-8 h-8" />
         </div>
         <h1 className="font-serif text-3xl font-bold text-brand-black">{t('orderSuccessTitle')}</h1>
-        <p className="text-xs text-brand-gray mt-2 leading-relaxed">{t('orderSuccessMessage')}</p>
+        <p className="text-xs text-brand-gray mt-2 leading-relaxed">
+          {isMomo ? successResult.message : t('orderSuccessMessage')}
+        </p>
 
         <div className="my-6 p-4 bg-brand-lightGray rounded text-xs text-left space-y-1">
-          <p className="font-bold text-brand-black">{t('orderCreatedIds')}</p>
+          {successResult.totalUsd != null && (
+            <p className="flex justify-between font-bold text-brand-black">
+              <span>{t('total')}</span>
+              <span>
+                {formatPriceUSD(successResult.totalUsd)} · {Math.round(successResult.totalCdf || 0).toLocaleString('fr-FR')} FC
+              </span>
+            </p>
+          )}
+          <p className="font-bold text-brand-black pt-2">{t('orderCreatedIds')}</p>
           {successResult.orderIds.map((id) => (
             <p key={id} className="font-mono text-neutral-600 truncate">{id}</p>
           ))}
@@ -178,71 +249,63 @@ export default function CheckoutPage() {
       </div>
 
       {errorMessage && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
+        <div role="alert" className="mb-6 p-4 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
 
+      {syncNotice && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 flex items-center gap-2">
+          <Info className="w-4 h-4 flex-shrink-0" />
+          <span>{syncNotice}</span>
+        </div>
+      )}
+
       <form onSubmit={handlePlaceOrder} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Cols: Delivery & Address */}
+        {/* Left 2 Cols: Delivery, Address & Payment */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Delivery Method Toggle */}
+          {/* 1. Delivery Method Toggle */}
           <div className="p-5 bg-white border border-brand-border rounded space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-brand-black">
               1. {t('deliveryMethod')}
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label
-                onClick={() => setDeliveryType('Cash on Delivery')}
-                className={`p-4 rounded border flex items-start gap-3 cursor-pointer transition ${
-                  deliveryType === 'Cash on Delivery'
-                    ? 'border-brand-black bg-brand-lightGray/80 ring-1 ring-black'
-                    : 'border-brand-border hover:border-neutral-400'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="deliveryType"
-                  checked={deliveryType === 'Cash on Delivery'}
-                  onChange={() => setDeliveryType('Cash on Delivery')}
-                  className="mt-1 accent-brand-black"
-                />
-                <div>
-                  <p className="text-xs font-bold text-brand-black">{t('cashOnDelivery')}</p>
-                  <p className="text-[11px] text-brand-gray mt-0.5">{t('cashOnDeliveryDesc')}</p>
-                </div>
-              </label>
-
-              <label
-                onClick={() => setDeliveryType('In-Store Pickup')}
-                className={`p-4 rounded border flex items-start gap-3 cursor-pointer transition ${
-                  deliveryType === 'In-Store Pickup'
-                    ? 'border-brand-black bg-brand-lightGray/80 ring-1 ring-black'
-                    : 'border-brand-border hover:border-neutral-400'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="deliveryType"
-                  checked={deliveryType === 'In-Store Pickup'}
-                  onChange={() => setDeliveryType('In-Store Pickup')}
-                  className="mt-1 accent-brand-black"
-                />
-                <div>
-                  <p className="text-xs font-bold text-brand-black">{t('inStorePickup')}</p>
-                  <p className="text-[11px] text-brand-gray mt-0.5">{t('inStorePickupDesc')}</p>
-                </div>
-              </label>
+              {([
+                ['Cash on Delivery', 'Livraison à domicile', 'Lubumbashi et Kolwezi, frais selon la commune.'],
+                ['In-Store Pickup', t('inStorePickup'), t('inStorePickupDesc')],
+              ] as const).map(([value, label, desc]) => (
+                <label
+                  key={value}
+                  className={`p-4 rounded border flex items-start gap-3 cursor-pointer transition ${
+                    deliveryType === value
+                      ? 'border-brand-black bg-brand-lightGray/80 ring-1 ring-black'
+                      : 'border-brand-border hover:border-neutral-400'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="deliveryType"
+                    checked={deliveryType === value}
+                    onChange={() => setDeliveryType(value)}
+                    className="mt-1 accent-brand-black"
+                  />
+                  <div>
+                    <p className="text-xs font-bold text-brand-black">{label}</p>
+                    <p className="text-[11px] text-brand-gray mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
             </div>
           </div>
 
-          {/* Delivery Address Form (when Cash on Delivery is selected) */}
-          {deliveryType === 'Cash on Delivery' && (
+          {/* 2. Delivery Address */}
+          {!isPickup && (
             <AddressForm
-              commune={commune}
-              onCommuneChange={setCommune}
+              zones={zones}
+              zoneId={deliveryZone?.id || ''}
+              onZoneChange={setDeliveryZone}
               landmark={landmark}
               onLandmarkChange={setLandmark}
               address={address}
@@ -252,7 +315,113 @@ export default function CheckoutPage() {
             />
           )}
 
-          {/* Promo Code & Loyalty Points — now available at checkout step */}
+          {/* 3. Payment */}
+          <div className="p-5 bg-white border border-brand-border rounded space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-brand-black">
+              {isPickup ? '2' : '3'}. Paiement
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label
+                className={`p-4 rounded border flex items-start gap-3 cursor-pointer transition ${
+                  paymentChoice === 'cash' ? 'border-brand-black bg-brand-lightGray/80 ring-1 ring-black' : 'border-brand-border hover:border-neutral-400'
+                }`}
+              >
+                <input type="radio" name="paymentChoice" checked={paymentChoice === 'cash'} onChange={() => setPaymentChoice('cash')} className="mt-1 accent-brand-black" />
+                <div>
+                  <p className="text-xs font-bold text-brand-black flex items-center gap-1.5">
+                    <Banknote className="w-3.5 h-3.5" /> {isPickup ? 'Payer au retrait' : t('cashOnDelivery')}
+                  </p>
+                  <p className="text-[11px] text-brand-gray mt-0.5">En USD ou en CDF, à la remise du colis.</p>
+                </div>
+              </label>
+
+              <label
+                className={`p-4 rounded border flex items-start gap-3 transition ${
+                  !momoAvailable ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                } ${paymentChoice === 'mobile_money' ? 'border-brand-black bg-brand-lightGray/80 ring-1 ring-black' : 'border-brand-border hover:border-neutral-400'}`}
+              >
+                <input
+                  type="radio"
+                  name="paymentChoice"
+                  disabled={!momoAvailable}
+                  checked={paymentChoice === 'mobile_money'}
+                  onChange={() => setPaymentChoice('mobile_money')}
+                  className="mt-1 accent-brand-black"
+                />
+                <div>
+                  <p className="text-xs font-bold text-brand-black flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5" /> Mobile Money
+                  </p>
+                  <p className="text-[11px] text-brand-gray mt-0.5">
+                    {momoAvailable ? 'M-Pesa, Airtel Money ou Orange Money.' : 'Momentanément indisponible.'}
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {paymentChoice === 'mobile_money' && (
+              <div className="mt-2 p-4 bg-brand-offWhite border border-brand-border rounded space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {MOMO_PROVIDERS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setMomoProvider(p.id)}
+                      className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border transition ${
+                        momoProvider === p.id ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-brand-black border-brand-border'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <ol className="text-[11px] text-neutral-700 space-y-1 list-decimal list-inside">
+                  <li>
+                    Envoyez <strong>{formatPriceUSD(total)}</strong> (≈ {formatPriceCDF(total)}) au numéro{' '}
+                    <strong className="font-mono">{merchantNumber || '—'}</strong> ({selectedProvider.label}).
+                  </li>
+                  <li>Saisissez ci-dessous le numéro qui a payé et la référence reçue par SMS.</li>
+                  <li>Votre commande est confirmée dès vérification du paiement par Zando Yetu.</li>
+                </ol>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="momo-phone" className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
+                      Numéro payeur *
+                    </label>
+                    <input
+                      id="momo-phone"
+                      type="tel"
+                      inputMode="tel"
+                      value={momoPhone}
+                      onChange={(e) => setMomoPhone(e.target.value)}
+                      placeholder="+243 8x xxx xxxx"
+                      className="w-full px-3 py-2 text-xs bg-white border border-brand-border rounded focus:border-brand-black focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="momo-ref" className="block text-[11px] font-semibold text-brand-black uppercase tracking-wider mb-1">
+                      Référence de transaction *
+                    </label>
+                    <input
+                      id="momo-ref"
+                      type="text"
+                      value={momoReference}
+                      onChange={(e) => setMomoReference(e.target.value.toUpperCase())}
+                      placeholder="Ex : MP241109.1234.A56789"
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-brand-border rounded focus:border-brand-black focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Promo Code & Loyalty Points */}
           <div className="space-y-4">
             <PromoCodeBox />
             <FidelityPointsBox />
@@ -278,9 +447,12 @@ export default function CheckoutPage() {
             <div className="space-y-2.5 text-xs pb-4 border-b border-brand-border">
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between text-neutral-600">
-                  <span className="truncate pr-2">{item.quantity}x {item.product.title}</span>
+                  <span className="truncate pr-2">
+                    {item.quantity}x {item.product.title}
+                    {item.flash && <span className="ml-1 text-amber-600 font-bold">⚡</span>}
+                  </span>
                   <span className="font-bold text-brand-black whitespace-nowrap">
-                    {formatPrice(item.product.price_usd * item.quantity)}
+                    {formatPrice(cartUnitPriceUsd(item) * item.quantity)}
                   </span>
                 </div>
               ))}
@@ -295,7 +467,11 @@ export default function CheckoutPage() {
               <div className="flex justify-between text-neutral-600">
                 <span>{t('deliveryFee')}</span>
                 <span className="font-bold text-brand-black">
-                  {delivery === 0 ? <span className="text-brand-emerald">{t('freeDelivery')}</span> : formatPrice(delivery)}
+                  {isPickup || deliveryZone ? (
+                    delivery === 0 ? <span className="text-brand-emerald">{t('freeDelivery')}</span> : formatPrice(delivery)
+                  ) : (
+                    <span className="text-brand-gray font-normal">Choisissez la commune</span>
+                  )}
                 </span>
               </div>
 

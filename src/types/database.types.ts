@@ -279,8 +279,12 @@ export type Database = {
           fulfillment_type: string
           full_name: string
           id: string
+          notes: string | null
           operational_city: string
+          phone: string
           product_focus: string
+          reviewed_at: string | null
+          status: string
           store_name: string
           user_id: string | null
         }
@@ -290,8 +294,12 @@ export type Database = {
           fulfillment_type: string
           full_name: string
           id?: string
+          notes?: string | null
           operational_city: string
+          phone: string
           product_focus: string
+          reviewed_at?: string | null
+          status?: string
           store_name: string
           user_id?: string | null
         }
@@ -301,8 +309,12 @@ export type Database = {
           fulfillment_type?: string
           full_name?: string
           id?: string
+          notes?: string | null
           operational_city?: string
+          phone?: string
           product_focus?: string
+          reviewed_at?: string | null
+          status?: string
           store_name?: string
           user_id?: string | null
         }

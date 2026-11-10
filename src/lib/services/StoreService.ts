@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { withVendorEmbedFallback } from '@/lib/supabase/vendorProfiles';
 import { Store } from '@/types/schema';
 
 export class StoreService {
@@ -28,21 +29,24 @@ export class StoreService {
       created_at: row.created_at,
       updated_at: row.updated_at,
       momo_enabled: !!row.momo_enabled,
+      phone: row.phone || null,
     }));
   }
 
   static async getById(id: string): Promise<Store | null> {
-    const { data, error } = await (supabase
-      .from('stores')
-      .select('*, users(phone)')
-      .eq('id', id)
-      .eq('is_archived', false)
-      .maybeSingle() as any);
+    const { data, error } = await withVendorEmbedFallback<any>((vendorEmbed) =>
+      supabase
+        .from('stores')
+        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
+        .eq('id', id)
+        .eq('is_archived', false)
+        .maybeSingle() as any
+    );
 
     if (error || !data) return null;
 
-    const [favRes, prodRes] = await Promise.all([
-      supabase.from('store_favorites').select('*', { count: 'exact', head: true }).eq('store_id', id) as any,
+    const [followerCount, prodRes] = await Promise.all([
+      StoreService.getFollowerCount(id),
       supabase.from('products').select('*', { count: 'exact', head: true }).eq('vendor_id', data.vendor_id).eq('status', 'active') as any,
     ]);
 
@@ -60,10 +64,26 @@ export class StoreService {
       created_at: data.created_at,
       updated_at: data.updated_at,
       momo_enabled: !!data.momo_enabled,
-      follower_count: favRes.count || 0,
+      follower_count: followerCount,
       product_count: prodRes.count || 0,
-      phone: data.users?.phone || null,
+      // Numéro public de la boutique, sinon celui du profil vendeur
+      phone: data.phone || data.users?.phone || null,
     };
+  }
+
+  /**
+   * Nombre d'abonnés : store_favorites n'est lisible que ligne par ligne par son
+   * titulaire, le total passe donc par la fonction store_favorites_count.
+   */
+  static async getFollowerCount(storeId: string): Promise<number> {
+    const { data, error } = await supabase.rpc('store_favorites_count', { p_store_id: storeId });
+    if (!error && typeof data === 'number') return data;
+
+    const { count } = await (supabase
+      .from('store_favorites')
+      .select('*', { count: 'exact', head: true })
+      .eq('store_id', storeId) as any);
+    return count || 0;
   }
 
   static async isFollowing(userId: string, storeId: string): Promise<boolean> {

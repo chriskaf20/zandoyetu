@@ -39,6 +39,7 @@ export interface Product {
   desc_fr: string | null;
   desc_sw: string | null;
   category: string | null;
+  category_id?: string | null;
   delivery_time: string | null;
   delivery_fee_usd: number | null;
   delivery_fee_cdf: number | null;
@@ -62,8 +63,12 @@ export interface Product {
     store_logo_url: string | null;
     city: string | null;
     phone?: string | null;
+    is_verified?: boolean;
   };
 }
+
+export type PaymentMethod = 'cash_on_delivery' | 'pay_at_store' | 'mobile_money';
+export type MobileMoneyProvider = 'mpesa' | 'airtel' | 'orange';
 
 export interface Order {
   id: string;
@@ -78,12 +83,20 @@ export interface Order {
   commune?: string | null;
   nearest_landmark?: string | null;
   delivery_address: string | null;
-  delivery_type: 'Cash on Delivery' | 'In-Store Pickup';
+  delivery_type: 'Cash on Delivery' | 'In-Store Pickup' | 'Home Delivery';
+  payment_method?: PaymentMethod;
   payment_reference: string | null;
   points_redeemed: number;
   discount_amount_usd: number;
   quantity: number;
   delivery_fee: number;
+  unit_price_usd?: number | null;
+  fx_rate?: number | null;
+  city?: string | null;
+  maps_link?: string | null;
+  selected_size?: string | null;
+  selected_color?: string | null;
+  checkout_group_id?: string | null;
   local_updated_at?: string;
   products?: Product;
   stores?: Store;
@@ -116,7 +129,10 @@ export interface Coupon {
   id: string;
   code: string;
   discount_percent: number;
-  store_id: string;
+  /** null = code plateforme valable sur tout le panier */
+  store_id: string | null;
+  /** Vendeur de la boutique du coupon : seuls ses articles sont remisés */
+  vendor_id?: string | null;
   status: 'pending' | 'active' | 'rejected';
   created_by: string | null;
   created_at: string;
@@ -219,15 +235,23 @@ export interface VendorDailyRevenue {
   cdf: number;
 }
 
+/** Ligne de public.merchant_applications (cf. supabase/hotfix_merchant_applications.sql) */
 export interface MerchantApplication {
   id: string;
-  user_id: string;
+  user_id: string | null;
   full_name: string;
+  /** AAAA-MM-JJ, responsable majeur */
+  date_of_birth: string;
   store_name: string;
   operational_city: string;
   product_focus: string;
+  /** 'Stock à Domicile' | 'Boutique Physique' */
   fulfillment_type: string;
+  /** WhatsApp +243XXXXXXXXX, repris comme téléphone de la boutique */
+  phone: string;
+  notes: string | null;
   status: 'pending' | 'approved' | 'rejected';
+  reviewed_at: string | null;
   created_at: string;
 }
 
@@ -250,6 +274,7 @@ export interface TicketMessage {
   id: string;
   thread_id: string;
   sender_id: string;
+  sender_role?: 'customer' | 'vendor' | 'admin';
   message_body: string;
   created_at: string;
 }

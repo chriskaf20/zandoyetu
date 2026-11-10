@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase/client';
-import { HeroBanner, Product } from '@/types/schema';
+import { HeroBanner, Product, MerchantApplication } from '@/types/schema';
 import { ProductService } from './ProductService';
+import { DEFAULT_EXCHANGE_RATE } from '@/lib/utils/currency';
+import { mapTicketMessage } from './SupportService';
+import type { DeliveryZone } from './DeliveryZoneService';
 
 export interface PlatformMetrics {
   totalGmvUsd: number;
@@ -33,17 +36,8 @@ export interface FinancialLedger {
   pickupOrders: number;
 }
 
-export interface MerchantApplication {
-  id: string;
-  user_id: string | null;
-  full_name: string;
-  date_of_birth: string;
-  operational_city: string;
-  store_name: string;
-  product_focus: string;
-  fulfillment_type: string;
-  created_at: string;
-}
+// Type unique partagé avec le formulaire /become-vendor
+export type { MerchantApplication };
 
 export interface PaymentTransaction {
   id: string;
@@ -317,10 +311,6 @@ export class AdminService {
         .from('products')
         .select('vendor_id, status');
 
-      const { data: followsData } = await supabase
-        .from('store_follows')
-        .select('vendor_id');
-
       const countByVendor: Record<string, number> = {};
       (productsData || []).forEach((p: any) => {
         if (p.status !== 'archived') {
@@ -328,15 +318,18 @@ export class AdminService {
         }
       });
 
-      const followersByVendor: Record<string, number> = {};
-      (followsData || []).forEach((f: any) => {
-        followersByVendor[f.vendor_id] = (followersByVendor[f.vendor_id] || 0) + 1;
-      });
+      // Abonnés = store_favorites (table privée) : compteur via RPC publique
+      const followerCounts = await Promise.all(
+        (storesData || []).map(async (s: any) => {
+          const { data } = await supabase.rpc('store_favorites_count', { p_store_id: s.id });
+          return Number(data) || 0;
+        })
+      );
 
-      return (storesData || []).map((s: any) => ({
+      return (storesData || []).map((s: any, i: number) => ({
         ...s,
         product_count: countByVendor[s.vendor_id] || 0,
-        follower_count: followersByVendor[s.vendor_id] || 0,
+        follower_count: followerCounts[i],
       }));
     } catch (err) {
       console.error('[AdminService] Error fetching all stores:', err);
@@ -347,25 +340,14 @@ export class AdminService {
   /**
    * Suspend / Archive a store and demote vendor to customer
    */
-  static async archiveStore(storeId: string, vendorId: string): Promise<boolean> {
-    try {
-      try {
-        await (supabase.rpc as any)('archive_store', { p_store_id: storeId });
-      } catch {
-        // Fallback direct updates
-      }
-
-      await Promise.all([
-        (supabase.from('stores').update({ is_archived: true, updated_at: new Date().toISOString() }).eq('id', storeId) as any),
-        (supabase.from('users').update({ role: 'customer', local_updated_at: new Date().toISOString() }).eq('id', vendorId) as any),
-        (supabase.from('products').update({ status: 'suspended', local_updated_at: new Date().toISOString() }).eq('vendor_id', vendorId) as any),
-      ]);
-
-      return true;
-    } catch (err) {
-      console.error('[AdminService] Error archiving store:', err);
+  static async archiveStore(storeId: string, _vendorId?: string): Promise<boolean> {
+    // Transactionnel : boutique archivée, produits suspendus, vendeur rétrogradé
+    const { error } = await supabase.rpc('admin_archive_store', { p_store_id: storeId, p_demote_vendor: true });
+    if (error) {
+      console.error('[AdminService] Error archiving store:', error);
       return false;
     }
+    return true;
   }
 
   /**
@@ -491,6 +473,7 @@ export class AdminService {
       const { data, error } = await supabase
         .from('merchant_applications')
         .select('*')
+        .eq('status', 'pending')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -504,86 +487,26 @@ export class AdminService {
   /**
    * Approve merchant application
    */
-  static async approveMerchantApplication(
-    applicationId: string,
-    applicantUserId: string,
-    storeName?: string,
-    city?: string,
-    focus?: string
-  ): Promise<boolean> {
-    try {
-      await (supabase
-        .from('users')
-        .update({
-          role: 'vendor',
-          status: 'active',
-          local_updated_at: new Date().toISOString(),
-        })
-        .eq('id', applicantUserId) as any);
-
-      const { data: existingStore } = await supabase
-        .from('stores')
-        .select('id')
-        .eq('vendor_id', applicantUserId)
-        .maybeSingle();
-
-      if (existingStore) {
-        await (supabase
-          .from('stores')
-          .update({
-            store_name: storeName || 'Boutique Partenaire',
-            city: city || 'Lubumbashi',
-            description: focus || '',
-            is_archived: false,
-            momo_enabled: true,
-            is_verified: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existingStore.id) as any);
-      } else {
-        await (supabase
-          .from('stores')
-          .insert({
-            vendor_id: applicantUserId,
-            store_name: storeName || 'Boutique Partenaire',
-            city: city || 'Lubumbashi',
-            description: focus || '',
-            is_archived: false,
-            momo_enabled: true,
-            is_verified: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }) as any);
-      }
-
-      await supabase
-        .from('merchant_applications')
-        .delete()
-        .eq('id', applicationId);
-
-      return true;
-    } catch (err) {
-      console.error('[AdminService] Error approving merchant application:', err);
+  static async approveMerchantApplication(applicationId: string, ..._legacy: unknown[]): Promise<boolean> {
+    // Transactionnel : rôle vendeur, boutique certifiée, fiche vendors, candidature marquée approuvée
+    const { error } = await supabase.rpc('admin_approve_merchant_application', { p_application_id: applicationId });
+    if (error) {
+      console.error('[AdminService] Error approving merchant application:', error);
       return false;
     }
+    return true;
   }
 
   /**
-   * Reject merchant application
+   * Reject merchant application (kept with status 'rejected' for history)
    */
   static async rejectMerchantApplication(applicationId: string): Promise<boolean> {
-    try {
-      const { error } = await supabase
-        .from('merchant_applications')
-        .delete()
-        .eq('id', applicationId);
-
-      if (error) throw error;
-      return true;
-    } catch (err) {
-      console.error('[AdminService] Error rejecting merchant application:', err);
+    const { error } = await supabase.rpc('admin_reject_merchant_application', { p_application_id: applicationId });
+    if (error) {
+      console.error('[AdminService] Error rejecting merchant application:', error);
       return false;
     }
+    return true;
   }
 
   /**
@@ -781,32 +704,28 @@ export class AdminService {
    * Confirm & approve payment transaction
    */
   static async approvePayment(txn: PaymentTransaction): Promise<boolean> {
-    try {
-      const now = new Date().toISOString();
-
-      await (supabase
-        .from('payment_transactions')
-        .update({
-          status: 'confirmed',
-          confirmed_at: now,
-        })
-        .eq('id', txn.id) as any);
-
-      if (txn.order_ids && txn.order_ids.length > 0) {
-        await (supabase
-          .from('orders')
-          .update({
-            order_status: 'approved',
-            local_updated_at: now,
-          })
-          .in('id', txn.order_ids) as any);
-      }
-
-      return true;
-    } catch (err) {
-      console.error('[AdminService] Error approving payment transaction:', err);
+    // Transactionnel : paiement confirmé + commandes approuvées (déduction du stock)
+    const { error } = await supabase.rpc('admin_approve_payment', { p_transaction_id: txn.id });
+    if (error) {
+      console.error('[AdminService] Error approving payment transaction:', error);
       return false;
     }
+    return true;
+  }
+
+  /**
+   * Reject a Mobile Money payment (wrong reference / amount): orders are cancelled
+   */
+  static async rejectPayment(txn: PaymentTransaction, reason?: string): Promise<boolean> {
+    const { error } = await supabase.rpc('admin_reject_payment', {
+      p_transaction_id: txn.id,
+      p_reason: reason || null,
+    });
+    if (error) {
+      console.error('[AdminService] Error rejecting payment transaction:', error);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -842,7 +761,7 @@ export class AdminService {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      return (data || []) as TicketMessage[];
+      return (data || []).map(mapTicketMessage) as TicketMessage[];
     } catch (err) {
       console.error('[AdminService] Error fetching thread messages:', err);
       return [];
@@ -866,7 +785,7 @@ export class AdminService {
           thread_id: threadId,
           sender_id: senderId,
           sender_role: 'admin',
-          message_body: messageBody.trim(),
+          text: messageBody.trim(),
           created_at: now,
         }) as any);
 
@@ -962,27 +881,8 @@ export class AdminService {
     created_by?: string | null;
   }): Promise<{ success: boolean; coupon?: any; error?: string }> {
     try {
-      let storeId = couponData.store_id;
-      if (!storeId || storeId === 'global') {
-        const { data: firstStore } = await supabase
-          .from('stores')
-          .select('id')
-          .limit(1)
-          .maybeSingle();
-
-        if (firstStore?.id) {
-          storeId = firstStore.id;
-        } else {
-          const { data: anyStore } = await supabase.from('stores').select('id').limit(1);
-          if (anyStore && anyStore.length > 0) {
-            storeId = anyStore[0].id;
-          }
-        }
-      }
-
-      if (!storeId) {
-        throw new Error('Aucune boutique active trouvée pour associer le code promo.');
-      }
+      // store_id NULL = code plateforme, valable sur tout le panier
+      const storeId = !couponData.store_id || couponData.store_id === 'global' ? null : couponData.store_id;
 
       const cleanCode = couponData.code.trim().toUpperCase();
       if (!cleanCode) {
@@ -1084,7 +984,7 @@ export class AdminService {
       console.error('[AdminService] Error fetching platform settings:', error);
       return {
         id: 1,
-        exchange_rate: 2850,
+        exchange_rate: DEFAULT_EXCHANGE_RATE,
         commission_rate: 10,
         mobile_money_active: 1,
         airtel_number: '+243970000000',
@@ -1199,7 +1099,8 @@ export class AdminService {
     stock_limit: number;
     start_time: string;
     end_time: string;
-  }): Promise<boolean> {
+  }): Promise<{ success: boolean; error?: string }> {
+    // Prix < prix normal, stock et chevauchement : vérifiés par trg_guard_flash_sale
     const { error } = await (supabase
       .from('flash_sales')
       .insert({
@@ -1209,22 +1110,21 @@ export class AdminService {
         items_sold: 0,
         start_time: input.start_time,
         end_time: input.end_time,
-        created_at: new Date().toISOString(),
       }) as any);
 
     if (error) {
       console.error('[AdminService] Error creating flash sale:', error);
-      return false;
+      return { success: false, error: error.message };
     }
-    return true;
+    return { success: true };
   }
 
   /**
    * Delete a flash sale
    */
   static async deleteFlashSale(id: string): Promise<boolean> {
-    const { error } = await supabase.from('flash_sales').delete().eq('id', id);
-    return !error;
+    const { data, error } = await supabase.from('flash_sales').delete().eq('id', id).select('id');
+    return !error && (data?.length ?? 0) > 0;
   }
 
   /**
@@ -1354,19 +1254,20 @@ export class AdminService {
    */
   static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
     try {
-      const { error } = await (supabase
+      const { data, error } = await (supabase
         .from('orders')
         .update({
           order_status: status,
           local_updated_at: new Date().toISOString(),
         })
-        .eq('id', orderId) as any);
+        .eq('id', orderId)
+        .select('id') as any);
 
       if (error) {
         console.error('[AdminService] Error updating order status:', error);
         return false;
       }
-      return true;
+      return (data?.length ?? 0) > 0;
     } catch (err) {
       console.error('[AdminService] Error updating order status:', err);
       return false;
@@ -1398,32 +1299,54 @@ export class AdminService {
   /**
    * Approve a vendor application (promote role to 'vendor' and verify store)
    */
-  static async approveVendor(storeId: string, vendorId: string): Promise<boolean> {
-    try {
-      await Promise.all([
-        (supabase.from('stores').update({ is_verified: true, is_archived: false, updated_at: new Date().toISOString() }).eq('id', storeId) as any),
-        (supabase.from('users').update({ role: 'vendor', local_updated_at: new Date().toISOString() }).eq('id', vendorId) as any),
-      ]);
-      return true;
-    } catch (err) {
-      console.error('[AdminService] Error approving vendor:', err);
+  static async approveVendor(storeId: string, _vendorId?: string): Promise<boolean> {
+    const { error } = await supabase.rpc('admin_set_store_approval', { p_store_id: storeId, p_approved: true });
+    if (error) {
+      console.error('[AdminService] Error approving vendor:', error);
       return false;
     }
+    return true;
   }
 
   /**
    * Reject a vendor application
    */
   static async rejectVendor(storeId: string): Promise<boolean> {
-    try {
-      const { error } = await (supabase
-        .from('stores')
-        .update({ is_archived: true, is_verified: false, updated_at: new Date().toISOString() })
-        .eq('id', storeId) as any);
-      return !error;
-    } catch (err) {
-      console.error('[AdminService] Error rejecting vendor:', err);
+    const { error } = await supabase.rpc('admin_set_store_approval', { p_store_id: storeId, p_approved: false });
+    if (error) {
+      console.error('[AdminService] Error rejecting vendor:', error);
       return false;
     }
+    return true;
+  }
+
+  // ── Delivery zones ─────────────────────────────────────────────────────────
+
+  static async getDeliveryZones(): Promise<DeliveryZone[]> {
+    const { data, error } = await supabase
+      .from('delivery_zones')
+      .select('*')
+      .order('sort_order', { ascending: true });
+    if (error) {
+      console.error('[AdminService] Error fetching delivery zones:', error);
+      return [];
+    }
+    return (data || []) as DeliveryZone[];
+  }
+
+  static async updateDeliveryZone(
+    id: string,
+    updates: Partial<Pick<DeliveryZone, 'fee_usd' | 'free_delivery_threshold_usd' | 'eta_label' | 'is_active'>>
+  ): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('delivery_zones')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('id');
+    if (error) {
+      console.error('[AdminService] Error updating delivery zone:', error);
+      return false;
+    }
+    return (data?.length ?? 0) > 0;
   }
 }

@@ -62,6 +62,8 @@ import {
   PendingCoupon
 } from '@/lib/services/AdminService';
 import { HeroBanner, Product, OrderStatus, FlashSale } from '@/types/schema';
+import type { DeliveryZone } from '@/lib/services/DeliveryZoneService';
+import { DEFAULT_EXCHANGE_RATE } from '@/lib/utils/currency';
 import { supabase } from '@/lib/supabase/client';
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 
@@ -77,6 +79,29 @@ type AdminTab =
   | 'banners';
 
 type UserSubTab = 'clients' | 'boutiques';
+
+/** Valeur d'un <input type="datetime-local"> dans le fuseau du navigateur (et non en UTC) */
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Âge en années révolues à partir d'une date AAAA-MM-JJ */
+function ageFromBirthDate(isoDate: string): number | null {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age -= 1;
+  return age;
+}
+
+function defaultFlashWindow() {
+  return {
+    start_time: toLocalInputValue(new Date()),
+    end_time: toLocalInputValue(new Date(Date.now() + 24 * 3600 * 1000)),
+  };
+}
 
 export default function AdminDashboardPage() {
   const { user: sessionUser } = useAuthStore();
@@ -106,7 +131,7 @@ export default function AdminDashboardPage() {
   const [processingStoreNameId, setProcessingStoreNameId] = useState<string | null>(null);
 
   // Settings form states
-  const [exchangeRateInput, setExchangeRateInput] = useState('2850');
+  const [exchangeRateInput, setExchangeRateInput] = useState(String(DEFAULT_EXCHANGE_RATE));
   const [commissionRateInput, setCommissionRateInput] = useState('10');
   const [mobileMoneyActive, setMobileMoneyActive] = useState(true);
   const [mpesaNumberInput, setMpesaNumberInput] = useState('+243810000000');
@@ -149,13 +174,18 @@ export default function AdminDashboardPage() {
     product_id: '',
     flash_price_usd: 0,
     stock_limit: 10,
-    start_time: new Date().toISOString().slice(0, 16),
-    end_time: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 16),
+    ...defaultFlashWindow(),
   });
 
   // Accounting State
   const [awaitingPayments, setAwaitingPayments] = useState<PaymentTransaction[]>([]);
   const [approvingPaymentId, setApprovingPaymentId] = useState<string | null>(null);
+
+  // Delivery zones (frais par commune, lus par rpc_process_checkout)
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+  const [savingZoneId, setSavingZoneId] = useState<string | null>(null);
+
+  const currentRate = settings?.exchange_rate || DEFAULT_EXCHANGE_RATE;
 
   // Support Ticketing State
   const [supportThreads, setSupportThreads] = useState<TicketThread[]>([]);
@@ -237,7 +267,7 @@ export default function AdminDashboardPage() {
       setLedger(led);
       if (sett) {
         setSettings(sett);
-        setExchangeRateInput(sett.exchange_rate?.toString() || '2850');
+        setExchangeRateInput(sett.exchange_rate?.toString() || String(DEFAULT_EXCHANGE_RATE));
         setCommissionRateInput(sett.commission_rate?.toString() || '10');
         setMobileMoneyActive(sett.mobile_money_active === 1);
         setMpesaNumberInput(sett.mpesa_number || '+243810000000');
@@ -267,6 +297,15 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
+  const activeThreadIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    AdminService.getDeliveryZones().then(setDeliveryZones);
+  }, []);
+
   useEffect(() => {
     loadData();
 
@@ -284,8 +323,9 @@ export default function AdminDashboardPage() {
         setAwaitingPayments(pmts);
       })
       .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'ticket_messages' }, async (payload: any) => {
-        if (payload.new && activeThreadId && payload.new.thread_id === activeThreadId) {
-          const msgs = await AdminService.getThreadMessages(activeThreadId);
+        const threadId = activeThreadIdRef.current;
+        if (payload.new && threadId && payload.new.thread_id === threadId) {
+          const msgs = await AdminService.getThreadMessages(threadId);
           setChatMessages(msgs);
         }
       })
@@ -294,7 +334,7 @@ export default function AdminDashboardPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadData, activeThreadId]);
+  }, [loadData]);
 
   // Load chat messages when active ticket changes
   useEffect(() => {
@@ -329,7 +369,7 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     setSavingSettings(true);
     try {
-      const rateVal = parseFloat(exchangeRateInput) || 2850;
+      const rateVal = parseFloat(exchangeRateInput) || DEFAULT_EXCHANGE_RATE;
       const commVal = parseFloat(commissionRateInput) || 10;
       const res = await AdminService.savePlatformSettings({
         exchange_rate: rateVal,
@@ -379,13 +419,7 @@ export default function AdminDashboardPage() {
     if (!app.user_id) return;
     setProcessingAppId(app.id);
     try {
-      const ok = await AdminService.approveMerchantApplication(
-        app.id,
-        app.user_id,
-        app.store_name,
-        app.operational_city,
-        app.product_focus
-      );
+      const ok = await AdminService.approveMerchantApplication(app.id);
       if (ok) {
         setMerchantApps((prev) => prev.filter((a) => a.id !== app.id));
         setMessage({ type: 'success', text: `Boutique "${app.store_name}" validée et compte vendeur activé !` });
@@ -405,6 +439,8 @@ export default function AdminDashboardPage() {
       if (ok) {
         setMerchantApps((prev) => prev.filter((a) => a.id !== appId));
         setMessage({ type: 'success', text: 'Demande marchande refusée.' });
+      } else {
+        setMessage({ type: 'error', text: 'Échec du refus de la demande marchande.' });
       }
     } finally {
       setProcessingAppId(null);
@@ -560,9 +596,58 @@ export default function AdminDashboardPage() {
         setAwaitingPayments((prev) => prev.filter((p) => p.id !== txn.id));
         setMessage({ type: 'success', text: 'Paiement validé et commandes marquées comme approuvées !' });
         loadData(true);
+      } else {
+        setMessage({ type: 'error', text: 'Validation impossible (paiement déjà traité ou stock insuffisant). Rechargez la file.' });
       }
     } finally {
       setApprovingPaymentId(null);
+    }
+  };
+
+  const handleRejectPayment = async (txn: PaymentTransaction) => {
+    const reason = prompt('Motif du refus (référence introuvable, montant incorrect…) :');
+    if (reason === null) return;
+    setApprovingPaymentId(txn.id);
+    try {
+      const ok = await AdminService.rejectPayment(txn, reason.trim() || undefined);
+      if (ok) {
+        setAwaitingPayments((prev) => prev.filter((p) => p.id !== txn.id));
+        setMessage({ type: 'success', text: 'Paiement refusé : les commandes liées sont annulées.' });
+        loadData(true);
+      } else {
+        setMessage({ type: 'error', text: 'Refus du paiement impossible.' });
+      }
+    } finally {
+      setApprovingPaymentId(null);
+    }
+  };
+
+  // Delivery zone editor
+  const updateZoneDraft = (id: string, patch: Partial<DeliveryZone>) => {
+    setDeliveryZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)));
+  };
+
+  const handleSaveZone = async (zone: DeliveryZone) => {
+    const fee = Number(zone.fee_usd);
+    const threshold = zone.free_delivery_threshold_usd == null ? null : Number(zone.free_delivery_threshold_usd);
+    if (!Number.isFinite(fee) || fee < 0 || (threshold != null && (!Number.isFinite(threshold) || threshold < 0))) {
+      setMessage({ type: 'error', text: 'Montants de livraison invalides.' });
+      return;
+    }
+    setSavingZoneId(zone.id);
+    try {
+      const ok = await AdminService.updateDeliveryZone(zone.id, {
+        fee_usd: fee,
+        free_delivery_threshold_usd: threshold,
+        eta_label: zone.eta_label?.trim() || null,
+        is_active: zone.is_active,
+      });
+      setMessage(ok
+        ? { type: 'success', text: `Zone ${zone.commune} (${zone.city}) mise à jour.` }
+        : { type: 'error', text: 'Mise à jour de la zone impossible.' });
+      if (!ok) AdminService.getDeliveryZones().then(setDeliveryZones);
+    } finally {
+      setSavingZoneId(null);
     }
   };
 
@@ -733,10 +818,23 @@ export default function AdminDashboardPage() {
       setMessage({ type: 'error', text: 'La date de fin doit être postérieure à la date de début.' });
       return;
     }
+    if (new Date(flashForm.end_time).getTime() <= Date.now()) {
+      setMessage({ type: 'error', text: 'La date de fin est déjà passée.' });
+      return;
+    }
+    const flashProduct = promotionsProducts.find((p) => p.id === flashForm.product_id);
+    if (flashProduct && Number(flashForm.flash_price_usd) >= Number(flashProduct.price_usd)) {
+      setMessage({ type: 'error', text: `Le prix flash doit être inférieur au prix actuel ($${Number(flashProduct.price_usd).toFixed(2)}).` });
+      return;
+    }
+    if (flashProduct && Number(flashForm.stock_limit) > Number(flashProduct.stock_count)) {
+      setMessage({ type: 'error', text: `Stock flash supérieur au stock disponible (${flashProduct.stock_count}).` });
+      return;
+    }
 
     setCreatingFlash(true);
     try {
-      const ok = await AdminService.createFlashSale({
+      const result = await AdminService.createFlashSale({
         product_id: flashForm.product_id,
         flash_price_usd: Number(flashForm.flash_price_usd),
         stock_limit: Number(flashForm.stock_limit) || 10,
@@ -744,20 +842,19 @@ export default function AdminDashboardPage() {
         end_time: new Date(flashForm.end_time).toISOString(),
       });
 
-      if (ok) {
+      if (result.success) {
         setMessage({ type: 'success', text: 'Vente Flash créée et programmée avec succès !' });
         setShowCreateFlashModal(false);
         setFlashForm({
           product_id: '',
           flash_price_usd: 0,
           stock_limit: 10,
-          start_time: new Date().toISOString().slice(0, 16),
-          end_time: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 16),
+          ...defaultFlashWindow(),
         });
         const updated = await AdminService.getFlashSales();
         setFlashSalesList(updated);
       } else {
-        setMessage({ type: 'error', text: 'Erreur lors de la création de la vente flash.' });
+        setMessage({ type: 'error', text: result.error || 'Erreur lors de la création de la vente flash.' });
       }
     } finally {
       setCreatingFlash(false);
@@ -772,6 +869,8 @@ export default function AdminDashboardPage() {
       if (ok) {
         setFlashSalesList((prev) => prev.filter((f) => f.id !== id));
         setMessage({ type: 'success', text: 'Vente flash retirée.' });
+      } else {
+        setMessage({ type: 'error', text: 'Impossible de retirer cette vente flash.' });
       }
     } finally {
       setProcessingFlashId(null);
@@ -1110,6 +1209,99 @@ export default function AdminDashboardPage() {
                   </form>
                 </div>
 
+                {/* 3b. Zones & frais de livraison */}
+                <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-emerald-400" />
+                      <h2 className="text-xs font-bold uppercase tracking-wider text-white">Zones & Frais de Livraison</h2>
+                    </div>
+                    <span className="text-[11px] text-neutral-400">{deliveryZones.length} communes</span>
+                  </div>
+
+                  {deliveryZones.length === 0 ? (
+                    <p className="text-xs text-neutral-500">Aucune zone (appliquez la migration v3_01 pour créer la table delivery_zones).</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-neutral-300 min-w-[620px]">
+                        <thead>
+                          <tr className="text-[10px] uppercase tracking-wider text-neutral-500 border-b border-neutral-800">
+                            <th className="text-left py-2 font-bold">Zone</th>
+                            <th className="text-left py-2 font-bold">Frais ($)</th>
+                            <th className="text-left py-2 font-bold">Gratuit dès ($)</th>
+                            <th className="text-left py-2 font-bold">Délai</th>
+                            <th className="text-left py-2 font-bold">Active</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-800">
+                          {deliveryZones.map((z) => (
+                            <tr key={z.id}>
+                              <td className="py-2 pr-2">
+                                <span className="font-semibold text-white">{z.commune}</span>
+                                <span className="text-neutral-500"> · {z.city}</span>
+                              </td>
+                              <td className="py-2 pr-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  value={z.fee_usd}
+                                  onChange={(e) => updateZoneDraft(z.id, { fee_usd: parseFloat(e.target.value) || 0 })}
+                                  className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-white font-mono"
+                                />
+                              </td>
+                              <td className="py-2 pr-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={z.free_delivery_threshold_usd ?? ''}
+                                  placeholder="Jamais"
+                                  onChange={(e) =>
+                                    updateZoneDraft(z.id, {
+                                      free_delivery_threshold_usd: e.target.value === '' ? null : parseFloat(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="w-20 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-white font-mono"
+                                />
+                              </td>
+                              <td className="py-2 pr-2">
+                                <input
+                                  type="text"
+                                  value={z.eta_label || ''}
+                                  placeholder="24h - 48h"
+                                  onChange={(e) => updateZoneDraft(z.id, { eta_label: e.target.value })}
+                                  className="w-28 px-2 py-1 bg-neutral-950 border border-neutral-800 rounded text-white"
+                                />
+                              </td>
+                              <td className="py-2 pr-2">
+                                <input
+                                  type="checkbox"
+                                  checked={z.is_active}
+                                  onChange={(e) => updateZoneDraft(z.id, { is_active: e.target.checked })}
+                                  className="w-4 h-4 accent-emerald-500"
+                                />
+                              </td>
+                              <td className="py-2 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveZone(z)}
+                                  disabled={savingZoneId === z.id}
+                                  className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-black text-[10px] font-bold uppercase rounded disabled:opacity-50 inline-flex items-center gap-1"
+                                >
+                                  {savingZoneId === z.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                  Enregistrer
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
                 {/* 4. Contrôle de Passerelle par Boutique */}
                 <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 sm:p-6 shadow-sm">
                   <div className="flex items-center justify-between mb-4">
@@ -1173,7 +1365,33 @@ export default function AdminDashboardPage() {
                           <div className="text-[11px] space-y-1 text-neutral-300">
                             <p><span className="text-neutral-500">Ville :</span> {app.operational_city}</p>
                             <p><span className="text-neutral-500">Focus :</span> {app.product_focus}</p>
-                            <p><span className="text-neutral-500">Livraison :</span> {app.fulfillment_type}</p>
+                            <p><span className="text-neutral-500">Type :</span> {app.fulfillment_type}</p>
+                            {app.date_of_birth && (
+                              <p>
+                                <span className="text-neutral-500">Âge :</span>{' '}
+                                {ageFromBirthDate(app.date_of_birth) ?? '—'} ans{' '}
+                                <span className="text-neutral-500">({new Date(`${app.date_of_birth}T00:00:00`).toLocaleDateString('fr-FR')})</span>
+                              </p>
+                            )}
+                            {app.phone && (
+                              <p className="flex items-center gap-1.5">
+                                <span className="text-neutral-500">WhatsApp :</span>
+                                <a
+                                  href={`https://wa.me/${app.phone.replace(/[^0-9]/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-emerald-400 hover:text-emerald-300 font-mono inline-flex items-center gap-1"
+                                >
+                                  <Phone className="w-3 h-3" />
+                                  {app.phone}
+                                </a>
+                              </p>
+                            )}
+                            {app.notes && (
+                              <p className="pt-1 text-neutral-400 whitespace-pre-line break-words">
+                                <span className="text-neutral-500">Présentation :</span> {app.notes}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2 pt-2 border-t border-neutral-800">
@@ -2014,7 +2232,7 @@ export default function AdminDashboardPage() {
                                         <span className="text-xs text-neutral-500 line-through">${regularPrice.toFixed(2)}</span>
                                       )}
                                     </div>
-                                    <p className="text-[10px] text-neutral-400 font-mono">≈ {Math.round(flashPrice * 2850).toLocaleString()} CDF</p>
+                                    <p className="text-[10px] text-neutral-400 font-mono">≈ {Math.round(flashPrice * currentRate).toLocaleString()} CDF</p>
                                   </div>
                                 </div>
                               </div>
@@ -2113,7 +2331,7 @@ export default function AdminDashboardPage() {
                                 <p className="text-[10px] text-neutral-400 mt-0.5 truncate">{p.category || 'Non classé'} • {p.users?.full_name || 'Boutique'}</p>
                                 <div className="flex items-baseline gap-1.5 mt-1.5">
                                   <span className="text-xs font-black text-white">${Number(p.price_usd).toFixed(2)}</span>
-                                  <span className="text-[10px] text-neutral-500 font-mono">≈ {Math.round(Number(p.price_usd) * 2850).toLocaleString()} CDF</span>
+                                  <span className="text-[10px] text-neutral-500 font-mono">≈ {Math.round(Number(p.price_usd) * currentRate).toLocaleString()} CDF</span>
                                 </div>
                               </div>
 
@@ -2215,7 +2433,7 @@ export default function AdminDashboardPage() {
                             />
                             {flashForm.flash_price_usd > 0 && (
                               <span className="text-[10px] text-neutral-400 font-mono mt-1 block">
-                                ≈ {Math.round(flashForm.flash_price_usd * 2850).toLocaleString()} CDF
+                                ≈ {Math.round(flashForm.flash_price_usd * currentRate).toLocaleString()} CDF
                               </span>
                             )}
                           </div>
@@ -2227,7 +2445,7 @@ export default function AdminDashboardPage() {
                             <input
                               type="number"
                               min="1"
-                              max="500"
+                              max={promotionsProducts.find((p) => p.id === flashForm.product_id)?.stock_count || 500}
                               value={flashForm.stock_limit}
                               onChange={(e) => setFlashForm({ ...flashForm, stock_limit: parseInt(e.target.value) || 10 })}
                               className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-lg text-white focus:outline-none focus:border-red-500 font-mono"
@@ -2356,6 +2574,15 @@ export default function AdminDashboardPage() {
                             <Check className="w-4 h-4" />
                           )}
                           Confirmer la Réception & Valider
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectPayment(txn)}
+                          disabled={approvingPaymentId === txn.id}
+                          className="w-full py-2 border border-red-800 text-red-300 hover:bg-red-950 text-xs font-bold uppercase tracking-wider rounded-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          <Ban className="w-4 h-4" />
+                          Paiement introuvable — Refuser
                         </button>
                       </div>
                     ))}

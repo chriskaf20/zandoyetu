@@ -2,6 +2,13 @@ import { supabase } from '@/lib/supabase/client';
 import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale } from '@/types/schema';
 import { ProductService } from './ProductService';
 import { PlatformSettingsService } from './PlatformSettingsService';
+import { DEFAULT_EXCHANGE_RATE } from '@/lib/utils/currency';
+import { compressImage, extensionForMime } from '@/lib/utils/imageCompression';
+
+/** Seul bucket existant ; chemins <vendor_id>/<fichier> (cf. politiques Storage v3) */
+export const PRODUCT_IMAGES_BUCKET = 'products';
+const PRODUCT_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 // ─── Input Types ─────────────────────────────────────────────────────────────
 
@@ -17,6 +24,8 @@ export interface CreateProductInput {
   desc_en?: string;
   desc_sw?: string;
   category: string;
+  /** Sous-catégorie de la table categories (source de vérité du filtrage) */
+  category_id?: string | null;
   price_usd: number;
   price_cdf?: number;
   compare_at_price?: number | null;
@@ -191,9 +200,9 @@ export class VendorService {
   static async getActiveExchangeRate(): Promise<number> {
     try {
       const settings = await PlatformSettingsService.getSettings();
-      return settings?.exchange_rate || 2850;
+      return settings?.exchange_rate || DEFAULT_EXCHANGE_RATE;
     } catch {
-      return 2850;
+      return DEFAULT_EXCHANGE_RATE;
     }
   }
 
@@ -247,6 +256,7 @@ export class VendorService {
         desc_en: input.desc_en?.trim() || descClean,
         desc_sw: input.desc_sw?.trim() || descClean,
         category: input.category,
+        category_id: input.category_id || null,
         price_usd: input.price_usd,
         price_cdf: priceCdf,
         compare_at_price: input.compare_at_price || null,
@@ -284,7 +294,8 @@ export class VendorService {
   static async updateProduct(
     productId: string,
     vendorId: string,
-    input: Partial<CreateProductInput> & { status?: 'active' | 'suspended' | 'archived'; is_trending?: boolean }
+    // is_trending et la suspension sont réservés à l'admin (garde DB trg_guard_product_privileged_columns)
+    input: Partial<CreateProductInput> & { status?: 'active' | 'archived' }
   ): Promise<Product> {
     const now = new Date().toISOString();
     const exchangeRate = await this.getActiveExchangeRate();
@@ -305,6 +316,7 @@ export class VendorService {
       updates.desc_sw = input.desc_sw?.trim() || d;
     }
     if (input.category !== undefined) updates.category = input.category;
+    if (input.category_id !== undefined) updates.category_id = input.category_id || null;
     if (input.price_usd !== undefined) {
       updates.price_usd = input.price_usd;
       updates.price_cdf = input.price_cdf || Math.round(input.price_usd * exchangeRate);
@@ -324,7 +336,6 @@ export class VendorService {
     }
     if (input.has_free_return !== undefined) updates.has_free_return = input.has_free_return ? 1 : 0;
     if (input.status !== undefined) updates.status = input.status;
-    if (input.is_trending !== undefined) updates.is_trending = input.is_trending;
 
     const { data, error } = await (supabase
       .from('products')
@@ -343,12 +354,12 @@ export class VendorService {
   }
 
   /**
-   * Update only the status of a product (archive, restore, suspend)
+   * Update only the status of a product (archive, restore)
    */
   static async updateProductStatus(
     productId: string,
     vendorId: string,
-    status: 'active' | 'archived' | 'suspended'
+    status: 'active' | 'archived'
   ): Promise<boolean> {
     const { error } = await (supabase
       .from('products')
@@ -383,20 +394,29 @@ export class VendorService {
   }
 
   /**
-   * Permanently delete a product
+   * Delete a product. A product referenced by orders cannot be deleted
+   * (order history): it is archived instead.
    */
-  static async deleteProduct(productId: string, vendorId: string): Promise<boolean> {
-    const { error } = await supabase
+  static async deleteProduct(productId: string, vendorId: string): Promise<'deleted' | 'archived'> {
+    const { data, error } = await supabase
       .from('products')
       .delete()
       .eq('id', productId)
-      .eq('vendor_id', vendorId);
+      .eq('vendor_id', vendorId)
+      .select('id');
 
+    if (error?.code === '23503') {
+      await this.updateProductStatus(productId, vendorId, 'archived');
+      return 'archived';
+    }
     if (error) {
       console.error('[VendorService] Error deleting product:', error);
-      return false;
+      throw new Error(error.message || 'Suppression impossible.');
     }
-    return true;
+    if (!data || data.length === 0) {
+      throw new Error('Article introuvable ou non autorisé.');
+    }
+    return 'deleted';
   }
 
   // ── Orders ─────────────────────────────────────────────────────────────────
@@ -406,26 +426,36 @@ export class VendorService {
    */
   static async getVendorOrders(vendorId: string): Promise<any[]> {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          products(id, title, images_urls, price_usd, price_cdf, category),
-          users:customer_id(id, full_name, phone, email)
-        `)
-        .eq('vendor_id', vendorId)
-        .order('timestamp', { ascending: false });
+      const [ordersRes, contactsRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('*, products(id, title, images_urls, price_usd, price_cdf, category)')
+          .eq('vendor_id', vendorId)
+          .order('timestamp', { ascending: false }),
+        // La table users n'est lisible que par son titulaire : contacts via vue dédiée
+        supabase.from('vendor_order_contacts').select('order_id, customer_id, full_name, phone'),
+      ]);
 
-      if (error) {
-        console.error('[VendorService] Error fetching vendor orders:', error);
+      if (ordersRes.error) {
+        console.error('[VendorService] Error fetching vendor orders:', ordersRes.error);
         return [];
       }
+      if (contactsRes.error) {
+        console.warn('[VendorService] Customer contacts unavailable:', contactsRes.error);
+      }
 
-      return (data || []).map((o: any) => ({
-        ...o,
-        products: Array.isArray(o.products) ? o.products[0] || null : o.products || null,
-        customer: Array.isArray(o.users) ? o.users[0] || null : o.users || null,
-      }));
+      const contactsByOrder = new Map<string, any>(
+        (contactsRes.data || []).map((c: any) => [c.order_id, c])
+      );
+
+      return (ordersRes.data || []).map((o: any) => {
+        const contact = contactsByOrder.get(o.id);
+        return {
+          ...o,
+          products: Array.isArray(o.products) ? o.products[0] || null : o.products || null,
+          customer: contact ? { id: contact.customer_id, full_name: contact.full_name, phone: contact.phone } : null,
+        };
+      });
     } catch (err) {
       console.error('[VendorService] Error in getVendorOrders:', err);
       return [];
@@ -433,105 +463,75 @@ export class VendorService {
   }
 
   /**
-   * Update order fulfillment status (e.g. 'shipped' when prepared/shipped)
+   * Update order fulfillment status. Allowed transitions are enforced in the
+   * database (approved → processing → shipped → completed).
    */
-  static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
-    const { error } = await (supabase
+  static async updateOrderStatus(orderId: string, status: string): Promise<void> {
+    const { data, error } = await supabase
       .from('orders')
       .update({
         order_status: status,
         local_updated_at: new Date().toISOString(),
       })
-      .eq('id', orderId) as any);
+      .eq('id', orderId)
+      .select('id');
 
     if (error) {
       console.error('[VendorService] Error updating order status:', error);
-      return false;
+      throw new Error(error.message || 'Mise à jour du statut impossible.');
     }
-    return true;
+    if (!data || data.length === 0) {
+      throw new Error('Commande introuvable ou non autorisée.');
+    }
   }
 
   // ── Image Upload ───────────────────────────────────────────────────────────
 
   /**
-   * Upload image to Supabase Storage (product-images bucket) with validation and local data URL fallback
+   * Upload a product photo to Storage (bucket « products », dossier <vendor_id>/),
+   * after client-side resizing. No data-URL fallback: a failed upload is an error,
+   * never a multi-megabyte base64 string stored in products.images_urls.
    */
-  static async uploadImage(file: File, vendorId?: string): Promise<string> {
-    // 1. Enforce allowed image MIME types
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowedMimeTypes.includes(file.type)) {
-      throw new Error('Format de fichier non autorisé. Formats acceptés : JPEG, PNG, WebP, GIF.');
+  static async uploadImage(file: File, vendorId: string): Promise<string> {
+    if (!vendorId) {
+      throw new Error('Session vendeur requise pour envoyer une image.');
+    }
+    if (!PRODUCT_IMAGE_MIME_TYPES.includes(file.type)) {
+      throw new Error('Format de fichier non autorisé. Formats acceptés : JPEG, PNG, WebP.');
     }
 
-    // 2. Enforce max file size limit (5MB)
-    const MAX_SIZE_BYTES = 5 * 1024 * 1024;
-    if (file.size > MAX_SIZE_BYTES) {
+    const blob = await compressImage(file);
+    if (blob.size > PRODUCT_IMAGE_MAX_BYTES) {
       throw new Error('La taille de l\'image dépasse la limite autorisée de 5 Mo.');
     }
-
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-    const filePath = vendorId ? `products/${vendorId}/${fileName}` : `products/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('product-images')
-      .upload(filePath, file, {
-        contentType: file.type,
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.warn('[VendorService] Storage bucket upload failed, using data URL fallback:', uploadError);
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-    }
-
-    const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-    return data.publicUrl;
+    return this.uploadBlob(blob, vendorId);
   }
 
   /**
-   * Upload base64 image (such as WebP from Studio Pro) to Supabase Storage
+   * Upload a base64 data URL (legacy images, AI outputs) to Storage
    */
-  static async uploadBase64Image(dataUrl: string, vendorId?: string): Promise<string> {
-    try {
-      const mimeMatch = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
-      const mimeType = mimeMatch ? mimeMatch[1] : 'image/webp';
-      const cleanBase64 = dataUrl.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
+  static async uploadBase64Image(dataUrl: string, vendorId: string): Promise<string> {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    return this.uploadBlob(blob, vendorId, 'studio');
+  }
 
-      const byteCharacters = atob(cleanBase64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: mimeType });
-      const ext = mimeType.includes('webp') ? 'webp' : mimeType.includes('png') ? 'png' : 'jpg';
+  private static async uploadBlob(blob: Blob, vendorId: string, prefix = 'img'): Promise<string> {
+    const contentType = blob.type || 'image/webp';
+    const fileName = `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${extensionForMime(contentType)}`;
+    const filePath = `${vendorId}/${fileName}`;
 
-      const fileName = `studio-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-      const filePath = vendorId ? `products/${vendorId}/${fileName}` : `products/${fileName}`;
+    const { error: uploadError } = await supabase.storage
+      .from(PRODUCT_IMAGES_BUCKET)
+      .upload(filePath, blob, { contentType, upsert: false });
 
-      const { error: uploadError } = await supabase.storage
-        .from('product-images')
-        .upload(filePath, blob, {
-          contentType: mimeType,
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.warn('[VendorService] Storage upload failed for base64, returning data URL:', uploadError);
-        return dataUrl;
-      }
-
-      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-      return data.publicUrl;
-    } catch (err) {
-      console.warn('[VendorService] Error uploading base64 image:', err);
-      return dataUrl;
+    if (uploadError) {
+      console.error('[VendorService] Storage upload failed:', uploadError);
+      throw new Error(`Échec de l'envoi de l'image : ${uploadError.message}`);
     }
+
+    const { data } = supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(filePath);
+    return data.publicUrl;
   }
 
   // ── Financials ─────────────────────────────────────────────────────────────
@@ -554,10 +554,10 @@ export class VendorService {
       const { data: settings } = await (supabase
         .from('platform_settings')
         .select('commission_rate, exchange_rate')
-        .limit(1)
+        .eq('id', 1)
         .maybeSingle() as any);
       const commissionRate: number = settings?.commission_rate || 10;
-      const exchangeRate: number = settings?.exchange_rate || 2850;
+      const exchangeRate: number = settings?.exchange_rate || DEFAULT_EXCHANGE_RATE;
 
       // All orders for this vendor
       const { data: orders } = await supabase
@@ -573,12 +573,15 @@ export class VendorService {
       const gmv_cdf = completedOrders.reduce((s: number, o: any) => s + (o.total_cdf || (o.total_usd ? o.total_usd * exchangeRate : 0)), 0);
       const commission_usd = (gmv_usd * commissionRate) / 100;
 
-      // Store follower & product counts
+      // Followers: store_favorites is private, count through the public RPC
       const { data: store } = await supabase
         .from('stores')
-        .select('follower_count, product_count')
+        .select('id')
         .eq('vendor_id', vendorId)
         .maybeSingle();
+      const { data: followerCount } = store
+        ? await supabase.rpc('store_favorites_count', { p_store_id: store.id })
+        : { data: 0 };
 
       // Active product IDs for review aggregation
       const { data: productRows } = await supabase
@@ -613,8 +616,8 @@ export class VendorService {
         net_payout_usd: gmv_usd - commission_usd,
         total_orders: allOrders.length,
         completed_orders: completedOrders.length,
-        follower_count: (store as any)?.follower_count || 0,
-        product_count: (store as any)?.product_count || (productRows?.length ?? 0),
+        follower_count: Number(followerCount) || 0,
+        product_count: productRows?.length ?? 0,
         average_rating,
         review_count,
       };

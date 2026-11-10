@@ -1,13 +1,14 @@
 import { supabase } from '@/lib/supabase/client';
 import { Order } from '@/types/schema';
-import { CheckoutPayload } from '@/types/cart';
+import { CheckoutPayload, CheckoutResult } from '@/types/cart';
 import { ProductService } from './ProductService';
 
 export class OrderService {
-  static async processCheckout(
-    customerId: string,
-    payload: CheckoutPayload
-  ): Promise<{ success: boolean; orderIds: string[]; message: string }> {
+  /**
+   * Prix (flash inclus), remises, frais de livraison et stock sont recalculés
+   * par rpc_process_checkout : le total renvoyé fait foi.
+   */
+  static async processCheckout(customerId: string, payload: CheckoutPayload): Promise<CheckoutResult> {
     const { data, error } = await (supabase.rpc as any)('rpc_process_checkout', {
       p_customer_id: customerId,
       p_items: payload.items,
@@ -15,6 +16,7 @@ export class OrderService {
       p_payment_method: payload.payment_method,
       p_promo_code: payload.promo_code || null,
       p_points_redeemed: payload.points_redeemed || 0,
+      p_payment_details: payload.payment_details || null,
     });
 
     if (error) {
@@ -30,6 +32,11 @@ export class OrderService {
     return {
       success: true,
       orderIds: result.order_ids || [],
+      checkoutGroupId: result.checkout_group_id,
+      totalUsd: Number(result.total_usd) || 0,
+      totalCdf: Number(result.total_cdf) || 0,
+      deliveryFeeUsd: Number(result.delivery_fee_usd) || 0,
+      paymentStatus: result.payment_status,
       message: result.message || 'Commande passée avec succès.',
     };
   }
@@ -65,6 +72,10 @@ export class OrderService {
       discount_amount_usd: Number(row.discount_amount_usd) || 0,
       quantity: Number(row.quantity) || 1,
       delivery_fee: Number(row.delivery_fee) || 0,
+      payment_method: row.payment_method,
+      selected_size: row.selected_size,
+      selected_color: row.selected_color,
+      checkout_group_id: row.checkout_group_id,
       local_updated_at: row.local_updated_at,
       products: row.products ? ProductService.mapRowToProduct(row.products) : undefined,
     }));

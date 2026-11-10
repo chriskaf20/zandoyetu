@@ -3,10 +3,11 @@
 import React, { useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ShoppingBag, Heart, Check, Store as StoreIcon, Loader2, MessageCircle } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, Heart, Check, Store as StoreIcon, Loader2, MessageCircle, Zap } from 'lucide-react';
 import { useProduct } from '@/hooks/useProducts';
 import { useCurrencyStore } from '@/lib/stores/useCurrencyStore';
-import { useCartStore } from '@/lib/stores/useCartStore';
+import { useCartStore, flashFromSale } from '@/lib/stores/useCartStore';
+import { useActiveFlashMap } from '@/hooks/useFlashSales';
 import { useWishlistStore } from '@/lib/stores/useWishlistStore';
 import { useLanguageStore } from '@/lib/stores/useLanguageStore';
 import { ImageGallery } from '@/components/product/ImageGallery';
@@ -14,6 +15,7 @@ import { VariantSelector } from '@/components/product/VariantSelector';
 import { TrustGuard } from '@/components/product/TrustGuard';
 import { ReviewSection } from '@/components/product/ReviewSection';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
+import { SITE_URL } from '@/lib/utils/siteUrl';
 
 export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -25,6 +27,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const isFavorite = useWishlistStore((s) => s.isFavorite(id));
   const toggleFavorite = useWishlistStore((s) => s.toggleFavorite);
   const { t } = useLanguageStore();
+  const flashSale = useActiveFlashMap().get(id);
 
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<string>('');
@@ -66,27 +69,35 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const activeColor = selectedColor || (product.colors_json?.[0] || 'Standard');
   const isOutOfStock = product.stock_count <= 0;
 
+  // Vente flash en cours avec du stock flash restant : prix revalidé par rpc_process_checkout
+  const flashRemaining = flashSale ? flashSale.stock_limit - (flashSale.items_sold || 0) : 0;
+  const activeFlash = flashSale && flashRemaining > 0 ? flashSale : undefined;
+  const displayPrice = activeFlash ? activeFlash.flash_price_usd : product.price_usd;
+  const referencePrice = activeFlash ? product.price_usd : product.compare_at_price ?? null;
+  const discountPercent =
+    referencePrice && referencePrice > displayPrice ? Math.round(((referencePrice - displayPrice) / referencePrice) * 100) : 0;
+
   const handleAddToCart = () => {
     if (isOutOfStock) return;
-    addItem(product, activeSize, activeColor);
+    addItem(product, activeSize, activeColor, 1, flashFromSale(activeFlash));
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2000);
   };
 
   const handleBuyNow = () => {
     if (isOutOfStock) return;
-    addItem(product, activeSize, activeColor);
+    addItem(product, activeSize, activeColor, 1, flashFromSale(activeFlash));
     router.push('/checkout');
   };
 
   // Vendor WhatsApp URL
   const rawPhone = product.stores?.phone || '243970000000';
   const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
-  const productUrl = typeof window !== 'undefined' ? window.location.href : `https://zandoyetu.com/products/${product.id}`;
+  const productUrl = typeof window !== 'undefined' ? window.location.href : `${SITE_URL}/products/${product.id}`;
   const whatsappMsg = encodeURIComponent(
     t('whatsappProductMsg', {
       title: product.title,
-      price: formatPrice(product.price_usd),
+      price: formatPrice(displayPrice),
       link: productUrl,
     })
   );
@@ -146,14 +157,27 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
 
             {/* Price section */}
             <div className="my-4">
-              <div className="flex items-baseline gap-3">
-                <span className="text-2xl font-bold text-brand-black">
-                  {formatPrice(product.price_usd)}
-                </span>
-                {product.compare_at_price && product.compare_at_price > product.price_usd && (
-                  <span className="text-sm text-brand-gray line-through">
-                    {formatPrice(product.compare_at_price)}
+              {activeFlash && (
+                <div className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-400 text-black text-[11px] font-black uppercase tracking-wide">
+                  <Zap className="w-3.5 h-3.5 fill-black" />
+                  <span>Vente flash -{discountPercent}%</span>
+                  <span className="font-semibold normal-case">
+                    · jusqu&apos;au {new Date(activeFlash.end_time).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+                    {' '}· {flashRemaining} restant{flashRemaining > 1 ? 's' : ''}
                   </span>
+                </div>
+              )}
+              <div className="flex items-baseline gap-3">
+                <span className={`text-2xl font-bold ${activeFlash ? 'text-amber-600' : 'text-brand-black'}`}>
+                  {formatPrice(displayPrice)}
+                </span>
+                {referencePrice && referencePrice > displayPrice && (
+                  <span className="text-sm text-brand-gray line-through">
+                    {formatPrice(referencePrice)}
+                  </span>
+                )}
+                {!activeFlash && discountPercent > 0 && (
+                  <span className="text-xs font-bold text-white bg-brand-red px-1.5 py-0.5 rounded">-{discountPercent}%</span>
                 )}
                 {product.stock_count > 0 && product.stock_count <= 3 && (
                   <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
@@ -162,7 +186,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 )}
               </div>
               <p className="text-[11px] text-neutral-500 font-medium mt-1">
-                {currency === 'USD' ? `Soit environ ${formatPriceCDF(product.price_usd)}` : `Soit environ ${formatPriceUSD(product.price_usd)}`}
+                {currency === 'USD' ? `Soit environ ${formatPriceCDF(displayPrice)}` : `Soit environ ${formatPriceUSD(displayPrice)}`}
               </p>
             </div>
 
