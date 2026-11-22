@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { Category } from '@/types/schema';
@@ -60,8 +60,12 @@ export function CategoryStoryRail({
   selectedCategory,
   onSelectCategory,
 }: CategoryStoryRailProps) {
-  const { t, language } = useLanguageStore();
+  const { t, language: storedLanguage } = useLanguageStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Premier rendu identique au HTML serveur (catégories et langue arrivent après l'hydratation)
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const language = hydrated ? storedLanguage : 'fr';
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -82,7 +86,7 @@ export function CategoryStoryRail({
 
   // Filter root categories from props or fallback to standard universes
   const rootCategories = categories.filter((c) => !c.parent_id);
-  const displayList = rootCategories.length > 0 ? rootCategories : (FALLBACK_UNIVERSES as Category[]);
+  const displayList = hydrated && rootCategories.length > 0 ? rootCategories : (FALLBACK_UNIVERSES as Category[]);
 
   return (
     <section className="relative my-3 sm:my-5 py-1">
