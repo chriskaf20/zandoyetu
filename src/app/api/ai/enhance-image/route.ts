@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { removeBackground } from '@imgly/background-removal-node';
 import sharp from 'sharp';
 import { z } from 'zod';
-import { ImageStudioService, RAIL_CANVAS_WIDTH, RAIL_CANVAS_HEIGHT } from '@/lib/services/ImageStudioService';
+import { ImageStudioService } from '@/lib/services/ImageStudioService';
 import { requireVendor } from '@/lib/server/requireVendor';
 import { consumeRateLimit } from '@/lib/server/rateLimit';
 import {
@@ -29,7 +29,6 @@ const bodySchema = z
   .object({
     imageBase64: z.string().min(1).max(MAX_BASE64_LENGTH).optional(),
     imageUrl: z.string().url().max(2048).optional(),
-    mode: z.enum(['studio', 'rail']).default('studio'),
     options: z
       .object({
         paddingPercent: z.number().min(0).max(0.25).optional(),
@@ -57,7 +56,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const { imageBase64, imageUrl, mode, options } = parsed.data;
+  const { imageBase64, imageUrl, options } = parsed.data;
 
   let normalizedPngBuffer: Buffer;
   try {
@@ -100,24 +99,6 @@ export async function POST(req: NextRequest) {
       console.warn('[EnhanceImage] Background removal failed, keeping original background:', bgError);
       transparentBuffer = normalizedPngBuffer;
       segmented = false;
-    }
-
-    if (mode === 'rail') {
-      if (!segmented) {
-        return NextResponse.json(
-          { error: 'Détourage impossible pour le rendu portant. Essayez une photo sur fond uni.' },
-          { status: 422 }
-        );
-      }
-      const railBuffer = await ImageStudioService.renderRailCutout(transparentBuffer, options.quality ?? 86);
-      return NextResponse.json({
-        success: true,
-        imageBase64: `data:image/webp;base64,${railBuffer.toString('base64')}`,
-        mimeType: 'image/webp',
-        width: RAIL_CANVAS_WIDTH,
-        height: RAIL_CANVAS_HEIGHT,
-        segmented,
-      });
     }
 
     // 3. Studio Standardization (3:4 ratio 1200x1600, 10% margin, soft drop shadow, WebP)

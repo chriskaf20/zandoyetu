@@ -47,7 +47,7 @@ import {
 import { useAuthStore } from '@/lib/stores/useAuthStore';
 import { VendorService, CreateProductInput, VendorCoupon, VendorFinancials } from '@/lib/services/VendorService';
 import { PlatformSettingsService } from '@/lib/services/PlatformSettingsService';
-import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale, Category, RailImages } from '@/types/schema';
+import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale, Category } from '@/types/schema';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/utils/currency';
 import { compressImage, blobToDataUrl } from '@/lib/utils/imageCompression';
 import { useCategories } from '@/hooks/useCategories';
@@ -142,7 +142,6 @@ function emptyProductForm(): CreateProductInput {
     stock_count: 0,
     target_gender: 'women',
     images_urls: [],
-    rail_images: null,
     sizes: [],
     colors: [],
     material_info: '',
@@ -390,10 +389,6 @@ export default function VendorDashboardPage() {
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [enhancingImageIdx, setEnhancingImageIdx] = useState<number | 'new' | null>(null);
-  const [railPreparing, setRailPreparing] = useState(false);
-  const [railBackLoading, setRailBackLoading] = useState(false);
-  const [railBackfill, setRailBackfill] = useState<{ done: number; total: number } | null>(null);
-  const railBackInputRef = useRef<HTMLInputElement>(null);
   const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const studioFileInputRef = useRef<HTMLInputElement>(null);
@@ -549,7 +544,6 @@ export default function VendorDashboardPage() {
       stock_count: product.stock_count,
       target_gender: product.target_gender,
       images_urls: product.images_urls || [],
-      rail_images: product.rail_images ?? null,
       sizes: parseSizes(product.sizes_json),
       colors: product.colors_json || [],
       material_info: product.material_info || '',
@@ -572,33 +566,17 @@ export default function VendorDashboardPage() {
 
     setSaving(true);
     try {
-      // Rendu portant automatique : détourage de la photo principale (n'empêche jamais la publication)
-      let railImages: RailImages | null = null;
-      let railFailed = false;
-      if (productForm.images_urls.some(Boolean)) {
-        setRailPreparing(true);
-        try {
-          railImages = await VendorService.ensureRailImages(productForm.images_urls, productForm.rail_images, user.id);
-        } catch {
-          railFailed = true;
-        } finally {
-          setRailPreparing(false);
-        }
-      }
-
       const finalForm = {
         ...productForm,
-        rail_images: railImages,
         price_cdf: Math.round(productForm.price_usd * exchangeRate),
       };
-      const railNote = railFailed ? ' (rendu portant indisponible pour cette photo : essayez une photo sur fond uni)' : '';
 
       if (editingProductId) {
         await VendorService.updateProduct(editingProductId, user.id, finalForm);
-        showMessage(railFailed ? 'error' : 'success', `Article mis à jour avec succès.${railNote}`);
+        showMessage('success', 'Article mis à jour avec succès.');
       } else {
         await VendorService.createProduct(user.id, finalForm);
-        showMessage(railFailed ? 'error' : 'success', `Article publié avec succès.${railNote}`);
+        showMessage('success', 'Article publié avec succès.');
       }
       setIsProductModalOpen(false);
       await loadData();
@@ -801,59 +779,6 @@ export default function VendorDashboardPage() {
       setEnhancingImageIdx(null);
       if (studioFileInputRef.current) studioFileInputRef.current.value = '';
     }
-  };
-
-  // ── Rendu portant : vue de dos (optionnelle) ─────────────────────────────
-  const handleRailBackUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-    setRailBackLoading(true);
-    try {
-      const compressed = await compressImage(file, 1600, 0.9);
-      const back = await VendorService.generateRailImage(await blobToDataUrl(compressed), user.id);
-      setProductForm(f => ({
-        ...f,
-        rail_images: { front: f.rail_images?.front ?? '', source: f.rail_images?.source ?? null, back },
-      }));
-      showMessage('success', 'Vue de dos détourée pour le portant.');
-    } catch (err: any) {
-      showMessage('error', err.message || 'Erreur lors du détourage de la vue de dos.');
-    } finally {
-      setRailBackLoading(false);
-      if (railBackInputRef.current) railBackInputRef.current.value = '';
-    }
-  };
-
-  // ── Rendu portant : articles existants sans détourage ─────────────────────
-  const railPendingProducts = useMemo(
-    () => products.filter(p => p.status !== 'archived' && p.images_urls?.[0] && (!p.rail_images?.front || p.rail_images.source !== p.images_urls[0])),
-    [products]
-  );
-
-  const handleRailBackfill = async () => {
-    if (!user || railBackfill) return;
-    const queue = railPendingProducts;
-    let done = 0;
-    let failed = 0;
-    let limited = false;
-    setRailBackfill({ done, total: queue.length });
-    for (const product of queue) {
-      try {
-        const rail = await VendorService.ensureRailImages(product.images_urls, product.rail_images, user.id);
-        await VendorService.setRailImages(product.id, user.id, rail);
-      } catch (err: any) {
-        if (/trop de requêtes/i.test(err?.message || '')) { limited = true; break; }
-        failed++;
-      }
-      done++;
-      setRailBackfill({ done, total: queue.length });
-    }
-    setRailBackfill(null);
-    await loadData();
-    const ready = done - failed;
-    if (limited) showMessage('error', `${ready} article(s) prêts. Limite de traitement atteinte : relancez dans quelques minutes.`);
-    else if (failed === 0) showMessage('success', `Rendu portant prêt pour ${ready} article(s).`);
-    else showMessage('error', `${ready} article(s) prêts, ${failed} photo(s) non détourables (préférez un fond uni).`);
   };
 
   const handleAddImageUrl = () => {
@@ -1073,25 +998,10 @@ export default function VendorDashboardPage() {
                 ))}
               </div>
 
-              {(railPendingProducts.length > 0 || railBackfill) && (
-                <button
-                  id="rail-backfill-btn"
-                  onClick={handleRailBackfill}
-                  disabled={!!railBackfill}
-                  title="Détoure la photo principale de chaque article pour l'afficher sur le portant"
-                  className="flex items-center gap-1.5 px-3.5 py-2 border border-brand-border bg-white text-brand-black text-xs font-semibold rounded-lg hover:border-brand-charcoal transition-colors disabled:opacity-60 ml-auto"
-                >
-                  {railBackfill ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-500" />}
-                  {railBackfill
-                    ? `Rendu portant ${railBackfill.done}/${railBackfill.total}…`
-                    : `Rendu portant (${railPendingProducts.length})`}
-                </button>
-              )}
-
               <button
                 id="add-product-btn"
                 onClick={openAddProduct}
-                className={`flex items-center gap-1.5 px-4 py-2 bg-brand-black text-white text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-brand-charcoal transition-colors ${railPendingProducts.length > 0 || railBackfill ? '' : 'ml-auto'}`}
+                className="flex items-center gap-1.5 px-4 py-2 bg-brand-black text-white text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-brand-charcoal transition-colors ml-auto"
               >
                 <Plus className="w-3.5 h-3.5" /> Ajouter un Article
               </button>
@@ -2433,59 +2343,6 @@ export default function VendorDashboardPage() {
                       </div>
                     )}
 
-                    {/* Rendu portant (ClothingRailHero) */}
-                    {productForm.images_urls.some(Boolean) && (
-                      <div className="rounded-lg border border-brand-border bg-brand-offWhite p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-brand-black">Rendu portant</p>
-                            <p className="text-[10px] text-brand-gray">
-                              La photo principale est détourée automatiquement à la publication. Ajoutez une vue de dos pour la vitrine 3D.
-                            </p>
-                          </div>
-                          <input ref={railBackInputRef} type="file" accept="image/*" className="hidden" onChange={handleRailBackUpload} />
-                          <button
-                            type="button"
-                            id="rail-back-btn"
-                            onClick={() => railBackInputRef.current?.click()}
-                            disabled={railBackLoading || saving}
-                            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border border-brand-border bg-white text-[11px] font-semibold rounded-lg hover:border-brand-charcoal disabled:opacity-50"
-                          >
-                            {railBackLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
-                            {productForm.rail_images?.back ? 'Changer le dos' : 'Ajouter le dos'}
-                          </button>
-                        </div>
-                        <div className="mt-2.5 flex gap-2.5">
-                          {([
-                            ['Face', productForm.rail_images?.front && productForm.rail_images.source === productForm.images_urls.find(Boolean) ? productForm.rail_images.front : null],
-                            ['Dos', productForm.rail_images?.back || null],
-                          ] as const).map(([label, src]) => (
-                            <div key={label} className="relative w-16 aspect-[200/285] rounded-md border border-dashed border-brand-border bg-[repeating-conic-gradient(#f4f4f4_0%_25%,#fff_0%_50%)] bg-[length:12px_12px] overflow-hidden">
-                              {src ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={src} alt={`Portant ${label}`} className="absolute inset-0 w-full h-full object-contain object-top" />
-                              ) : (
-                                <span className="absolute inset-0 flex items-center justify-center text-center text-[8px] font-semibold text-brand-gray px-1">
-                                  {label === 'Face' ? 'Auto à la publication' : 'Optionnel'}
-                                </span>
-                              )}
-                              <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] font-bold text-center py-0.5">{label}</span>
-                              {label === 'Dos' && src && (
-                                <button
-                                  type="button"
-                                  onClick={() => setProductForm(f => ({ ...f, rail_images: f.rail_images ? { ...f.rail_images, back: null } : null }))}
-                                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 hover:bg-black/90 flex items-center justify-center"
-                                  aria-label="Retirer la vue de dos"
-                                >
-                                  <X className="w-2.5 h-2.5 text-white" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {/* Upload actions bar */}
                     <div className="flex flex-wrap gap-2 pt-1">
                       {/* Studio Pro Clean Upload */}
@@ -2621,7 +2478,7 @@ export default function VendorDashboardPage() {
                     className="flex items-center gap-2 px-5 py-2 bg-brand-black text-white text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-brand-charcoal transition-colors disabled:opacity-50"
                   >
                     {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    {railPreparing ? 'Rendu portant…' : editingProductId ? 'Mettre à jour' : 'Publier l\'Article'}
+                    {editingProductId ? 'Mettre à jour' : 'Publier l\'Article'}
                   </button>
                 </div>
               </div>

@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import { withVendorEmbedFallback } from '@/lib/supabase/vendorProfiles';
-import { Product, RailImages } from '@/types/schema';
+import { Product } from '@/types/schema';
 import { CategoryService } from './CategoryService';
 
 export const DEFAULT_PAGE_SIZE = 48;
@@ -13,18 +13,6 @@ function quotePostgrestValue(value: string): string {
 /** Terme de recherche sans caractères de syntaxe PostgREST/LIKE */
 function sanitizeSearchTerm(raw: string): string {
   return raw.replace(/[%_*,()"'\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
-}
-
-function parseRailImages(raw: unknown): RailImages | null {
-  const value = typeof raw === 'string' ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-  if (!value || typeof value !== 'object') return null;
-  const { front, back, source } = value as Record<string, unknown>;
-  if (typeof front !== 'string' || !front) return null;
-  return {
-    front,
-    back: typeof back === 'string' && back ? back : null,
-    source: typeof source === 'string' ? source : null,
-  };
 }
 
 export class ProductService {
@@ -63,7 +51,6 @@ export class ProductService {
       desc_fr: row.desc_fr,
       desc_sw: row.desc_sw,
       category: row.category,
-      category_id: row.category_id ?? null,
       delivery_time: row.delivery_time,
       delivery_fee_usd: row.delivery_fee_usd != null ? Number(row.delivery_fee_usd) : null,
       delivery_fee_cdf: row.delivery_fee_cdf != null ? Number(row.delivery_fee_cdf) : null,
@@ -76,7 +63,6 @@ export class ProductService {
       price_cdf: Number(row.price_cdf) || 0,
       stock_count: Number(row.stock_count) || 0,
       images_urls: images,
-      rail_images: parseRailImages(row.rail_images),
       target_gender: (row.target_gender as 'men' | 'women' | 'mixte') || 'mixte',
       status: (row.status as 'active' | 'suspended' | 'archived') || 'active',
       is_trending: !!row.is_trending,
@@ -233,31 +219,6 @@ export class ProductService {
    * Strictly fetch trending products (is_trending = true AND status = 'active').
    * Returns an empty array if none are marked trending.
    */
-  /** Produits prêts pour le portant (détourage disponible), filtrables par catégorie. */
-  static async getRailProducts(options?: { category?: string; categoryId?: string | null; limit?: number }): Promise<Product[]> {
-    const cat = options?.category?.toLowerCase().trim();
-    const categoryFilter = cat && cat !== 'all' && cat !== 'tendances' ? await this.categoryFilter(cat) : null;
-    if (cat && cat !== 'all' && cat !== 'tendances' && !categoryFilter) return [];
-
-    const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) => {
-      let query: any = supabase
-        .from('products')
-        .select(vendorEmbed ? `*, ${vendorEmbed}` : '*')
-        .eq('status', 'active')
-        .not('rail_images', 'is', null);
-      if (categoryFilter) query = query.or(categoryFilter);
-      if (options?.categoryId) query = query.eq('category_id', options.categoryId);
-      return query.order('local_updated_at', { ascending: false }).limit(options?.limit || 12);
-    });
-
-    if (error) {
-      console.error('[ProductService] Error fetching rail products:', error);
-      return [];
-    }
-
-    return (data || []).map(this.mapRowToProduct).filter((p: Product) => !!p.rail_images);
-  }
-
   static async getTrendingProducts(limit = 10): Promise<Product[]> {
     const { data, error } = await withVendorEmbedFallback<any[]>((vendorEmbed) =>
       supabase

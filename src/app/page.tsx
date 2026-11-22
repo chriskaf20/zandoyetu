@@ -14,7 +14,6 @@ import { CategoryStoryRail } from '@/components/storefront/CategoryStoryRail';
 import { PromoDealsGrid } from '@/components/storefront/PromoDealsGrid';
 import { ProductGrid } from '@/components/storefront/ProductGrid';
 import { FloatingAuthBanner } from '@/components/storefront/FloatingAuthBanner';
-import { FashionRail } from '@/components/storefront/FashionRail';
 import { ScrollToTopButton } from '@/components/storefront/ScrollToTopButton';
 import { Loader2, Heart, Search, X, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
@@ -129,7 +128,6 @@ function HomeContent() {
             trendingProducts={trendingProducts}
             topStores={stores}
           />
-          <FashionRail category={selectedCategory} />
         </>
       )}
 

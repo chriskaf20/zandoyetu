@@ -10,36 +10,7 @@ export interface StudioEnhanceOptions {
   shadowIntensity?: number;
 }
 
-/** Canevas « portant » : zone photo du cintre (200 × 285.2, soit 92 % de 200 × 310). */
-export const RAIL_CANVAS_WIDTH = 800;
-export const RAIL_CANVAS_HEIGHT = 1141;
-
 export class ImageStudioService {
-  /**
-   * Détourage transparent calé en haut du canevas portant :
-   * le col arrive sous la barre du cintre dessiné par ClothingRailHero.
-   */
-  static async renderRailCutout(transparentPngBuffer: Buffer, quality = 86): Promise<Buffer> {
-    const trimmed = await sharp(transparentPngBuffer).trim().png().toBuffer({ resolveWithObject: true });
-    const maxW = Math.round(RAIL_CANVAS_WIDTH * 0.86);
-    const maxH = Math.round(RAIL_CANVAS_HEIGHT * 0.93);
-    const scale = Math.min(maxW / trimmed.info.width, maxH / trimmed.info.height, 2);
-    const w = Math.max(1, Math.round(trimmed.info.width * scale));
-    const h = Math.max(1, Math.round(trimmed.info.height * scale));
-
-    const subject = await sharp(trimmed.data)
-      .resize(w, h, { fit: 'inside', kernel: sharp.kernel.lanczos3 })
-      .png()
-      .toBuffer();
-
-    return sharp({
-      create: { width: RAIL_CANVAS_WIDTH, height: RAIL_CANVAS_HEIGHT, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-    })
-      .composite([{ input: subject, left: Math.round((RAIL_CANVAS_WIDTH - w) / 2), top: Math.round(RAIL_CANVAS_HEIGHT * 0.05) }])
-      .webp({ quality, alphaQuality: 90, effort: 6 })
-      .toBuffer();
-  }
-
   /**
    * Enhances a transparent product photo into a high-end 3:4 studio asset.
    * - Trims excess empty transparent bounds

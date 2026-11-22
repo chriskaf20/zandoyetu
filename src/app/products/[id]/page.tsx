@@ -14,7 +14,6 @@ import { ImageGallery } from '@/components/product/ImageGallery';
 import { VariantSelector } from '@/components/product/VariantSelector';
 import { TrustGuard } from '@/components/product/TrustGuard';
 import { ReviewSection } from '@/components/product/ReviewSection';
-import { FashionRail } from '@/components/storefront/FashionRail';
 import { usePlatformSettings } from '@/hooks/usePlatformSettings';
 import { SITE_URL } from '@/lib/utils/siteUrl';
 
@@ -305,16 +304,6 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       </div>
-
-      {product.category_id && (
-        <FashionRail
-          categoryId={product.category_id}
-          activeProductId={product.id}
-          eyebrow="Sur le même portant"
-          heading="Articles similaires"
-          caption="Faites glisser les cintres pour comparer."
-        />
-      )}
 
       {/* Review Section */}
       <ReviewSection productId={product.id} />
