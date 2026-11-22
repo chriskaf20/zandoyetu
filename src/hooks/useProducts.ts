@@ -16,6 +16,15 @@ export function useProducts(options?: {
   });
 }
 
+/** Produits avec rendu portant (détourage) */
+export function useRailProducts(options?: { category?: string; categoryId?: string | null; limit?: number }) {
+  return useQuery({
+    queryKey: ['rail-products', options],
+    queryFn: () => ProductService.getRailProducts(options),
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 /** Tendances indépendantes des filtres de la grille */
 export function useTrendingProducts(limit = 8) {
   return useQuery({

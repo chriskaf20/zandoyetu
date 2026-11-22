@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
-import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale } from '@/types/schema';
+import { Product, Store, SettlementLedgerEntry, VendorDailyRevenue, FlashSale, RailImages } from '@/types/schema';
 import { ProductService } from './ProductService';
 import { PlatformSettingsService } from './PlatformSettingsService';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/utils/currency';
@@ -32,6 +32,7 @@ export interface CreateProductInput {
   stock_count: number;
   target_gender: 'women' | 'men' | 'mixte';
   images_urls: string[];
+  rail_images?: RailImages | null;
   sizes: string[];
   colors: string[];
   material_info?: string;
@@ -64,6 +65,21 @@ export interface VendorCoupon {
   created_at: string;
   created_by: string | null;
   expires_at?: string | null;
+}
+
+/** Tant que migration_v3_04_rail_images n'est pas appliquée, enregistre sans rail_images. */
+type QueryResult = { data: any; error: any };
+
+async function withoutMissingRailColumn(
+  payload: Record<string, unknown>,
+  run: (payload: Record<string, unknown>) => PromiseLike<QueryResult>
+): Promise<QueryResult> {
+  const result = await run(payload);
+  const missingColumn = result.error?.code === 'PGRST204' && /rail_images/.test(result.error?.message || '');
+  if (!missingColumn || !('rail_images' in payload)) return result;
+  console.warn('[VendorService] Colonne products.rail_images absente : appliquez migration_v3_04_rail_images.sql');
+  const { rail_images: _omit, ...rest } = payload;
+  return run(rest);
 }
 
 export class VendorService {
@@ -243,9 +259,7 @@ export class VendorService {
     const titleClean = input.title.trim();
     const descClean = input.description?.trim() || null;
 
-    const { data, error } = await (supabase
-      .from('products')
-      .insert({
+    const row: Record<string, unknown> = {
         vendor_id: vendorId,
         title: titleClean,
         title_fr: input.title_fr?.trim() || titleClean,
@@ -271,12 +285,15 @@ export class VendorService {
         delivery_fee_usd: input.delivery_fee_usd || null,
         delivery_fee_cdf: input.delivery_fee_usd ? Math.round(input.delivery_fee_usd * exchangeRate) : null,
         has_free_return: input.has_free_return ? 1 : 0,
+        ...(input.rail_images ? { rail_images: input.rail_images } : {}),
         status: 'active',
         is_trending: false,
         local_updated_at: now,
-      })
-      .select('*')
-      .single() as any);
+      };
+
+    const { data, error } = await withoutMissingRailColumn(row, (payload) =>
+      supabase.from('products').insert(payload as any).select('*').single() as any
+    );
 
     if (error) {
       console.error('[VendorService] Error creating product:', error);
@@ -335,15 +352,12 @@ export class VendorService {
       updates.delivery_fee_cdf = input.delivery_fee_usd ? Math.round(input.delivery_fee_usd * exchangeRate) : null;
     }
     if (input.has_free_return !== undefined) updates.has_free_return = input.has_free_return ? 1 : 0;
+    if (input.rail_images !== undefined) updates.rail_images = input.rail_images;
     if (input.status !== undefined) updates.status = input.status;
 
-    const { data, error } = await (supabase
-      .from('products')
-      .update(updates)
-      .eq('id', productId)
-      .eq('vendor_id', vendorId)
-      .select('*')
-      .single() as any);
+    const { data, error } = await withoutMissingRailColumn(updates, (payload) =>
+      supabase.from('products').update(payload as any).eq('id', productId).eq('vendor_id', vendorId).select('*').single() as any
+    );
 
     if (error) {
       console.error('[VendorService] Error updating product:', error);
@@ -510,10 +524,52 @@ export class VendorService {
   /**
    * Upload a base64 data URL (legacy images, AI outputs) to Storage
    */
-  static async uploadBase64Image(dataUrl: string, vendorId: string): Promise<string> {
+  static async uploadBase64Image(dataUrl: string, vendorId: string, prefix = 'studio'): Promise<string> {
     const res = await fetch(dataUrl);
     const blob = await res.blob();
-    return this.uploadBlob(blob, vendorId, 'studio');
+    return this.uploadBlob(blob, vendorId, prefix);
+  }
+
+  // ── Rendu « portant » ──────────────────────────────────────────────────────
+
+  /** Détourage transparent au format du portant, stocké dans le bucket produits. */
+  static async generateRailImage(source: string, vendorId: string): Promise<string> {
+    const res = await fetch('/api/ai/enhance-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(source.startsWith('data:') ? { imageBase64: source, mode: 'rail' } : { imageUrl: source, mode: 'rail' }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || 'Échec du rendu portant.');
+    }
+    return this.uploadBase64Image(json.imageBase64, vendorId, 'rail');
+  }
+
+  /** Détourage de face à jour pour la photo principale (régénéré si elle a changé). */
+  static async ensureRailImages(
+    images: string[],
+    current: RailImages | null | undefined,
+    vendorId: string
+  ): Promise<RailImages | null> {
+    const main = images.find(Boolean);
+    if (!main) return null;
+    if (current?.front && current.source === main) return current;
+    const front = await this.generateRailImage(main, vendorId);
+    return { front, back: current?.back ?? null, source: main };
+  }
+
+  /** Enregistre le rendu portant sans changer la date de mise à jour du produit. */
+  static async setRailImages(productId: string, vendorId: string, rail: RailImages | null): Promise<void> {
+    const { error } = await (supabase
+      .from('products')
+      .update({ rail_images: rail } as any)
+      .eq('id', productId)
+      .eq('vendor_id', vendorId) as any);
+    if (error) {
+      console.error('[VendorService] Error saving rail images:', error);
+      throw new Error(`Échec de l'enregistrement du rendu portant : ${error.message}`);
+    }
   }
 
   private static async uploadBlob(blob: Blob, vendorId: string, prefix = 'img'): Promise<string> {

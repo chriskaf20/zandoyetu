@@ -27,6 +27,14 @@ export interface User {
   local_updated_at?: string;
 }
 
+/** Détourages transparents du rendu « portant » (ClothingRailHero). */
+export interface RailImages {
+  front: string;
+  back?: string | null;
+  /** Photo d'origine du détourage de face : régénéré quand la photo principale change. */
+  source?: string | null;
+}
+
 export interface Product {
   id: string;
   vendor_id: string;
@@ -52,6 +60,7 @@ export interface Product {
   price_cdf: number;
   stock_count: number;
   images_urls: string[];
+  rail_images?: RailImages | null;
   target_gender: 'men' | 'women' | 'mixte';
   status: 'active' | 'suspended' | 'archived';
   is_trending: boolean;

@@ -3,6 +3,19 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --background: 255 255 255;
+    --foreground: 17 17 17;
+    --card: 255 255 255;
+    --card-foreground: 17 17 17;
+    --muted: 244 244 244;
+    --muted-foreground: 112 112 114;
+    --border: 229 229 229;
+    --ring: 17 17 17;
+    --color-foreground: rgb(var(--foreground));
+    --color-muted-foreground: rgb(var(--muted-foreground));
+  }
+
   body {
     @apply bg-white text-brand-black antialiased selection:bg-brand-black selection:text-white font-sans;
   }
